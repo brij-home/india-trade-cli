@@ -171,7 +171,7 @@ def _is_placeholder(val: str) -> bool:
         or val_lower.endswith("_here")
         or "your_" in val_lower
         or "xxxx-100" in val_lower
-        or "sk-or-v1-" in val_lower
+        or val_lower in ("your_openrouter_api_key_here", "sk-or-v1-your-key-here", "sk-or-v1-xxx")
     )
 
 def get_credential(

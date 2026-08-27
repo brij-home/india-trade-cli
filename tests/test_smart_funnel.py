@@ -38,7 +38,7 @@ class TestQuantPreFilter:
                 "rsi": 54.0,
                 "ema20": 1480.0,
                 "ema50": 1450.0,
-                "dma200": 1400.0,
+                "sma200": 1400.0,
                 "macd_hist": 2.5,
                 "volume_ratio": 1.2,
             },
@@ -69,7 +69,7 @@ class TestQuantPreFilter:
                 "rsi": 82.0,  # Overbought
                 "ema20": 480.0,
                 "ema50": 510.0,  # Downtrend
-                "dma200": 600.0,  # Deep below 200DMA
+                "sma200": 600.0,  # Deep below 200DMA
                 "macd_hist": -5.0,
                 "volume_ratio": 0.2,  # Anemic
             },
@@ -94,10 +94,10 @@ class TestQuantPreFilter:
             sym = args.get("symbol", "")
             if sym == "GOOD":
                 return {
-                    "rsi": 52.0, "ema20": 100, "ema50": 90, "dma200": 80, "roe": 20.0, "debt_to_equity": 0.1
+                    "rsi": 52.0, "ema20": 100, "ema50": 90, "sma200": 80, "roe": 20.0, "debt_to_equity": 0.1
                 }
             return {
-                "rsi": 85.0, "ema20": 50, "ema50": 60, "dma200": 80, "roe": 1.0, "debt_to_equity": 4.0
+                "rsi": 85.0, "ema20": 50, "ema50": 60, "sma200": 80, "roe": 1.0, "debt_to_equity": 4.0
             }
 
         mock_registry.execute.side_effect = side_effect
@@ -107,6 +107,18 @@ class TestQuantPreFilter:
         assert len(reports) == 2
         assert reports[0].symbol == "GOOD"
         assert reports[0].score > reports[1].score
+
+    def test_fallback_selection_when_zero_qualified(self):
+        mock_registry = MagicMock()
+        mock_registry.execute.side_effect = lambda tool, args: {
+            "rsi": 85.0, "ema20": 50, "ema50": 60, "sma200": 80, "roe": 1.0, "debt_to_equity": 4.0
+        }
+        with patch.object(SmartFunnel, "_get_providers", return_value=(None, None)):
+            funnel = SmartFunnel(registry=mock_registry, verbose=False)
+            res = funnel.run(symbols=["BAD1", "BAD2"], top_n=1)
+            assert res.qualified_count == 0
+            assert res.is_fallback_selection is True
+            assert len(res.candidate_symbols) == 1
 
 
 class TestSynthesisParser:

@@ -86,6 +86,12 @@ console = Console(legacy_windows=False)
 
 ANTHROPIC_DEFAULT_MODEL = "claude-opus-4-5"
 OPENAI_DEFAULT_MODEL = "gpt-4o"
+GEMINI_DEFAULT_MODEL = "gemini-2.0-flash"
+OLLAMA_DEFAULT_MODEL = "llama3.1"
+NVIDIA_DEFAULT_MODEL = "meta/llama-3.3-70b-instruct"
+GROQ_DEFAULT_MODEL = "llama-3.3-70b-versatile"
+DEEPSEEK_DEFAULT_MODEL = "deepseek-chat"
+OPENROUTER_DEFAULT_MODEL = "anthropic/claude-3.5-sonnet"
 
 MAX_TOOL_ROUNDS = 10  # agentic loop safety cap
 
@@ -103,9 +109,6 @@ PROVIDER_CLAUDE_CLI = "claude_subscription"
 PROVIDER_OPENAI_SUB = "openai_subscription"
 PROVIDER_GEMINI_SUB = "gemini_subscription"
 PROVIDER_OLLAMA = "ollama"
-
-GEMINI_DEFAULT_MODEL = "gemini-3.5-flash"
-OLLAMA_DEFAULT_MODEL = "llama3.1"
 
 ALL_PROVIDERS = [
     PROVIDER_ANTHROPIC,
@@ -183,7 +186,14 @@ class LLMProvider(ABC):
         self.system_prompt = system_prompt
 
     @abstractmethod
-    def chat(self, messages: list[dict], stream: bool = True) -> str:
+    def chat(
+        self,
+        messages: list[dict],
+        stream: bool = True,
+        tool_names: list[str] | set[str] | None = None,
+        enable_tools: bool = True,
+        **kwargs,
+    ) -> str:
         """
         Send messages, run tool loop, return final text response.
         Streams text live to terminal when stream=True.
@@ -210,7 +220,7 @@ class AnthropicProvider(LLMProvider):
     """
 
     def __init__(self, model: str, registry: ToolRegistry, system_prompt: str) -> None:
-        resolved = model or os.environ.get("GEMINI_MODEL") or os.environ.get("AI_MODEL") or GEMINI_DEFAULT_MODEL
+        resolved = model or os.environ.get("ANTHROPIC_MODEL") or os.environ.get("AI_MODEL") or ANTHROPIC_DEFAULT_MODEL
         super().__init__(resolved, registry, system_prompt)
         try:
             import anthropic as _sdk
@@ -239,9 +249,16 @@ class AnthropicProvider(LLMProvider):
     def provider_name(self) -> str:
         return f"Anthropic / {self.model}"
 
-    def chat(self, messages: list[dict], stream: bool = True) -> str:
+    def chat(
+        self,
+        messages: list[dict],
+        stream: bool = True,
+        tool_names: list[str] | set[str] | None = None,
+        enable_tools: bool = True,
+        **kwargs,
+    ) -> str:
         local = list(messages)
-        tools = self.registry.anthropic_schema()
+        tools = self.registry.anthropic_schema(include=tool_names) if enable_tools else None
         final = ""
 
         for _ in range(MAX_TOOL_ROUNDS):
@@ -275,7 +292,7 @@ class AnthropicProvider(LLMProvider):
                 break
         else:
             try:
-                final, _ = self._call_round(oai, tools=None)
+                final, _ = self._call_round(local, tools=None)
             except Exception:
                 final = "[Agent concluded analysis based on gathered tool data]"
 
@@ -622,38 +639,6 @@ class OpenAIProvider(LLMProvider):
         if last_exc:
             raise last_exc
         return "", []
-        for chunk in stream:
-            if not chunk.choices:
-                continue
-            delta = chunk.choices[0].delta
-            if delta.content:
-                text += delta.content
-                console.print(delta.content, end="", markup=False, highlight=False)
-            if delta.tool_calls:
-                for d in delta.tool_calls:
-                    idx = d.index
-                    if idx not in tc_acc:
-                        tc_acc[idx] = {"id": "", "name": "", "args": ""}
-                    if d.id:
-                        tc_acc[idx]["id"] += d.id
-                    if d.function:
-                        if d.function.name:
-                            tc_acc[idx]["name"] += d.function.name
-                        if d.function.arguments:
-                            tc_acc[idx]["args"] += d.function.arguments
-
-        if text:
-            console.print()
-
-        tcs = []
-        for idx in sorted(tc_acc):
-            tc = tc_acc[idx]
-            try:
-                args = json.loads(tc["args"]) if tc["args"] else {}
-            except json.JSONDecodeError:
-                args = {}
-            tcs.append({"id": tc["id"], "name": tc["name"], "input": args})
-        return text, tcs
 
 
 # ── Claude CLI provider (subscription) ────────────────────────
@@ -682,7 +667,7 @@ class ClaudeCLIProvider(LLMProvider):
     """
 
     def __init__(self, model: str, registry: ToolRegistry, system_prompt: str) -> None:
-        resolved = model or os.environ.get("GEMINI_MODEL") or os.environ.get("AI_MODEL") or GEMINI_DEFAULT_MODEL
+        resolved = model or os.environ.get("ANTHROPIC_MODEL") or os.environ.get("AI_MODEL") or ANTHROPIC_DEFAULT_MODEL
         super().__init__(resolved, registry, system_prompt)
         self._cli = self._find_claude_cli()
 
@@ -704,7 +689,14 @@ class ClaudeCLIProvider(LLMProvider):
             "Then run `claude login` to authenticate."
         )
 
-    def chat(self, messages: list[dict], stream: bool = True) -> str:
+    def chat(
+        self,
+        messages: list[dict],
+        stream: bool = True,
+        tool_names: list[str] | set[str] | None = None,
+        enable_tools: bool = True,
+        **kwargs,
+    ) -> str:
         """
         Two-phase approach to avoid multiple slow subprocess calls.
 
@@ -1477,7 +1469,14 @@ class OpenAISubscriptionProvider(LLMProvider):
                 "Token may be expired — log in to chatgpt.com and get a fresh token."
             )
 
-    def chat(self, messages: list[dict], stream: bool = True) -> str:
+    def chat(
+        self,
+        messages: list[dict],
+        stream: bool = True,
+        tool_names: list[str] | set[str] | None = None,
+        enable_tools: bool = True,
+        **kwargs,
+    ) -> str:
         """
         Best-effort ChatGPT backend call.
         Does NOT support native tool calling (no tool loop).
@@ -1798,9 +1797,9 @@ class GeminiVertexProvider(LLMProvider):
     def provider_name(self) -> str:
         return f"Google Vertex AI / {self.model or 'gemini-2.5-pro'} ({self._project})"
 
-    def _build_vertex_tools(self):
+    def _build_vertex_tools(self, include: list[str] | set[str] | None = None):
         declarations = []
-        for t in self.registry.anthropic_schema():
+        for t in self.registry.anthropic_schema(include=include):
             declarations.append(
                 self._FunctionDeclaration(
                     name=t["name"],
@@ -1810,7 +1809,14 @@ class GeminiVertexProvider(LLMProvider):
             )
         return self._Tool(function_declarations=declarations) if declarations else None
 
-    def chat(self, messages: list[dict], stream: bool = True) -> str:
+    def chat(
+        self,
+        messages: list[dict],
+        stream: bool = True,
+        tool_names: list[str] | set[str] | None = None,
+        enable_tools: bool = True,
+        **kwargs,
+    ) -> str:
         """Same agentic loop as GeminiProvider, using Vertex AI client."""
         gemini_history = (
             GeminiProvider._to_gemini_history(messages[:-1]) if len(messages) > 1 else []
@@ -1924,11 +1930,16 @@ def get_provider(
     chosen = provider or os.environ.get("AI_PROVIDER", "").lower() or _auto_detect_provider()
 
     # If auto-detect fell back to anthropic but no key is available,
-    # run the first-time setup instead of prompting for a key mid-command.
+    # run the first-time setup only if running in an interactive terminal session
     if chosen == PROVIDER_ANTHROPIC and not _has_anthropic_key():
-        chosen = _first_time_provider_setup()
+        import sys
 
-    chosen_model = model or _default_model(chosen)
+        if sys.stdin and hasattr(sys.stdin, "isatty") and sys.stdin.isatty():
+            chosen = _first_time_provider_setup()
+        else:
+            chosen = "none"
+
+    chosen_model = model or os.environ.get("AI_MODEL") or _default_model(chosen)
 
     system = build_system_prompt()
 
@@ -2533,6 +2544,9 @@ def get_deep_provider(
     This provider is used for: bull/bear debate, risk debate, synthesis.
     """
     deep_prov = os.environ.get("AI_DEEP_PROVIDER") or os.environ.get("AI_PROVIDER", "")
+    if not deep_prov:
+        deep_prov = _auto_detect_provider()
+
     deep_model = (
         os.environ.get("AI_DEEP_MODEL")
         or (os.environ.get("NVIDIA_MODEL") if deep_prov == PROVIDER_NVIDIA else None)
@@ -2575,7 +2589,7 @@ def get_fast_provider(
     if not fast_prov and not fast_model:
         if deep_provider is not None:
             return deep_provider
-        return get_provider(registry=registry)
+        return build_provider_from_env(registry=registry)
 
     # Build fast provider with overridden env
     reg = registry or build_registry()
@@ -2705,3 +2719,8 @@ def ensure_ai_provider_configured() -> None:
     chosen = os.environ.get("AI_PROVIDER", "").lower() or _auto_detect_provider()
     if chosen == PROVIDER_ANTHROPIC and not _has_anthropic_key():
         _first_time_provider_setup()
+
+
+# Backward-compatibility aliases
+build_fast_provider_from_env = get_fast_provider
+build_provider_from_env = get_provider

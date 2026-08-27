@@ -202,7 +202,8 @@ class TestExecuteTradePlan:
         broker = _make_broker("FYERS")
         with patch.dict(os.environ, {"TRADING_MODE": "LIVE"}):
             with patch("engine.trade_executor.Confirm.ask", return_value=True):
-                result = execute_trade_plan(_make_plan(), broker)
+                with patch("engine.trade_executor.Prompt.ask", return_value="CONFIRM"):
+                    result = execute_trade_plan(_make_plan(), broker)
         assert len(result) == 1
         assert result[0]["mode"] == "LIVE"
         assert result[0]["status"] == "COMPLETE"

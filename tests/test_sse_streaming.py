@@ -336,14 +336,32 @@ class TestSSEEndpoints:
         """GET /stream/prices route must be registered on the FastAPI app."""
         from web.api import app
 
-        paths = [getattr(r, "path", None) for r in app.routes if hasattr(r, "path")]
+        def _collect_paths(routes):
+            paths = []
+            for r in routes:
+                if hasattr(r, "path"):
+                    paths.append(r.path)
+                if hasattr(r, "routes"):
+                    paths.extend(_collect_paths(r.routes))
+            return paths
+
+        paths = _collect_paths(app.routes)
         assert "/stream/prices" in paths, f"/stream/prices not found in routes: {paths}"
 
     def test_alerts_route_registered(self):
         """GET /stream/alerts route must be registered on the FastAPI app."""
         from web.api import app
 
-        paths = [getattr(r, "path", None) for r in app.routes if hasattr(r, "path")]
+        def _collect_paths(routes):
+            paths = []
+            for r in routes:
+                if hasattr(r, "path"):
+                    paths.append(r.path)
+                if hasattr(r, "routes"):
+                    paths.extend(_collect_paths(r.routes))
+            return paths
+
+        paths = _collect_paths(app.routes)
         assert "/stream/alerts" in paths, f"/stream/alerts not found in routes: {paths}"
 
     # ── Slow: live connection tests (excluded from default CI run) ────────

@@ -129,6 +129,8 @@ class SmartFunnelResult:
     qualified_symbols: list[str]
     trade_plans: list[TradePlanSummary]
     elapsed_sec: float
+    candidate_symbols: list[str] = field(default_factory=list)
+    is_fallback_selection: bool = False
     macro_summary: dict[str, Any] = field(default_factory=dict)
 
 
@@ -213,9 +215,9 @@ class SmartFunnel:
         # Extract parameters
         ltp = float(tech.get("ltp") or tech.get("close") or 0.0)
         rsi = float(tech.get("rsi") or 50.0)
-        ema20 = float(tech.get("ema20") or 0.0)
-        ema50 = float(tech.get("ema50") or 0.0)
-        dma200 = float(tech.get("dma200") or 0.0)
+        ema20 = float(tech.get("ema20") or tech.get("sma20") or 0.0)
+        ema50 = float(tech.get("ema50") or tech.get("sma50") or 0.0)
+        dma200 = float(tech.get("sma200") or tech.get("dma200") or tech.get("ema200") or 0.0)
         macd_hist = float(tech.get("macd_hist") or tech.get("macd_histogram") or 0.0)
         vol_ratio = float(tech.get("volume_ratio") or tech.get("vol_ratio") or 1.0)
 
@@ -485,12 +487,15 @@ class SmartFunnel:
                 f"[dim red]{len(filtered_reports)} Filtered Out[/dim red]"
             )
 
+        qualified_symbols = [r.symbol for r in qualified_reports]
+        is_fallback = False
         if qualified_reports:
             target_candidates = qualified_reports[:top_n]
         else:
             target_candidates = filter_reports[:top_n]
+            is_fallback = True
             if self.verbose:
-                console.print("[dim yellow]  (No stocks met strict qualification; evaluating top relative scorers)[/dim yellow]")
+                console.print("[dim yellow]  (0 stocks met strict qualification; evaluating top relative scorers)[/dim yellow]")
 
         candidate_symbols = [r.symbol for r in target_candidates]
 
@@ -551,7 +556,9 @@ class SmartFunnel:
             qualified_count=len(qualified_reports),
             filtered_count=len(filtered_reports),
             pre_filter_reports=filter_reports,
-            qualified_symbols=candidate_symbols,
+            qualified_symbols=qualified_symbols,
+            candidate_symbols=candidate_symbols,
+            is_fallback_selection=is_fallback,
             trade_plans=trade_plans,
             elapsed_sec=elapsed,
         )
@@ -586,11 +593,16 @@ class SmartFunnel:
             "0 Tokens",
             f"Saved ~{result.filtered_count * 11000:,} tokens from non-setups",
         )
+
+        stage3_title = "3. Qualified for Multi-Agent Debate" if not result.is_fallback_selection else "3. Evaluated Candidates (Fallback Closest Setups)"
+        stage3_count = str(len(result.qualified_symbols)) if not result.is_fallback_selection else f"0 Qualified ({len(result.candidate_symbols)} fallback candidates)"
+        stage3_impact = "High-probability momentum & quality filters passed" if not result.is_fallback_selection else "0 met strict criteria — evaluated closest relative scorers"
+
         t_flow.add_row(
-            "3. Qualified for Multi-Agent Debate",
-            str(len(result.qualified_symbols)),
-            f"~{len(result.qualified_symbols) * 11000:,} Tokens",
-            "High-probability momentum & quality filters passed",
+            stage3_title,
+            stage3_count,
+            f"~{len(result.candidate_symbols) * 11000:,} Tokens",
+            stage3_impact,
         )
         t_flow.add_row(
             "4. Final Actionable Trade Plans",

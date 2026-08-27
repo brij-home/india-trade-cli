@@ -297,10 +297,13 @@ class TradeMemory:
         self._save()
         # Auto-reflect on outcome so the lesson is captured immediately (#92)
         try:
-            from agent.core import build_fast_provider_from_env
+            if os.environ.get("AI_FAST_PROVIDER") or os.environ.get("AI_FAST_MODEL"):
+                from agent.core import get_fast_provider
 
-            provider = build_fast_provider_from_env()
-            self.reflect_and_remember(trade_id, llm_provider=provider)
+                provider = get_fast_provider()
+                self.reflect_and_remember(trade_id, llm_provider=provider)
+            else:
+                self.reflect_and_remember(trade_id, llm_provider=None)
         except Exception:
             pass  # reflect is best-effort — never block outcome recording
         return True

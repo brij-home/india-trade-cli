@@ -1,4 +1,4 @@
-﻿"""
+"""
 app/main.py
 ───────────
 Entry point for the trading platform.

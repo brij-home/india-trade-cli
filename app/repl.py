@@ -1748,7 +1748,7 @@ def run_repl(broker: BrokerAPI) -> None:
                     llm_provider=getattr(agent, "_provider", None),
                 )
 
-                        elif command in ("funnel", "smart-funnel", "screen-funnel"):
+            elif command in ("funnel", "smart-funnel", "screen-funnel"):
                 # Institutional 3-Stage Smart Funnel: Quant Pre-filter -> Multi-Agent Debate -> Trade Plans
                 # Usage: funnel [nifty_it | nifty50 | nifty_bank | SYM1 SYM2 ...] [--top 3]
                 if not args:
@@ -1775,7 +1775,7 @@ def run_repl(broker: BrokerAPI) -> None:
                     res = funnel.run(symbols=target, top_n=top_n)
                     funnel.print_summary(res)
 
-elif command == "quick":
+            elif command == "quick":
                 # Quick scan: single-agent, 1 LLM call, 3-5s
                 # Usage: quick SYMBOL [SYMBOL2 ...]
 

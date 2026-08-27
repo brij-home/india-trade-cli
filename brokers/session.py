@@ -125,17 +125,23 @@ def register_broker(
         broker:  Authenticated BrokerAPI instance.
         primary: If True, set as the primary broker.
         role:    Optional role: "data", "execution", or "both".
-                 Defaults strictly to "data" for safety.
     """
     global _brokers, _primary_key, _data_key, _exec_key
     _brokers[key] = broker
     if primary or not _primary_key:
         _primary_key = key
-    if role in ("data", "both") or role is None:
-        if not _data_key or role in ("data", "both"):
-            _data_key = key
-    if role in ("execution", "both"):
+    if role == "both" or (role is None and len(_brokers) == 1):
+        _data_key = key
         _exec_key = key
+    elif role == "data":
+        _data_key = key
+    elif role == "execution":
+        _exec_key = key
+    else:
+        if not _data_key:
+            _data_key = key
+        if not _exec_key:
+            _exec_key = key
 
 
 def unregister_broker(key: str) -> None:
@@ -782,9 +788,10 @@ def login(choice: Optional[str] = None) -> BrokerAPI:
 
     _brokers[key] = broker
     _primary_key = key
-    _data_key = key  # login = default data broker
-    if key == "mock":
-        _exec_key = key  # mock can handle execution by default
+    if not _data_key or len(_brokers) == 1:
+        _data_key = key
+    if not _exec_key or len(_brokers) == 1:
+        _exec_key = key
 
     # Skip _print_welcome on resume (it makes slow API calls)
     # Just show broker name
@@ -820,7 +827,7 @@ def connect_broker(choice: Optional[str] = None) -> BrokerAPI:
     Returns:
         The newly connected BrokerAPI instance.
     """
-    global _brokers, _data_key
+    global _brokers, _data_key, _exec_key
 
     if not _brokers:
         console.print("[yellow]No primary broker yet. Use 'login' first.[/yellow]")
@@ -852,9 +859,11 @@ def connect_broker(choice: Optional[str] = None) -> BrokerAPI:
             _do_auth(key, broker)
 
     _brokers[key] = broker
+    _exec_key = key
     if not _data_key:
         _data_key = key
-    _print_welcome(broker, role="data")
+    auto_assign_roles()
+    _print_welcome(broker, role="execution")
 
     console.print(
         f"\n[green]✓  {len(_brokers)} broker(s) now active.[/green]  "

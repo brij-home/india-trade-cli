@@ -164,7 +164,17 @@ def format_search_results(results: list[WebSearchResult]) -> str:
 
 
 def _dispatch(provider: str, query: str, n: int) -> list[WebSearchResult]:
-    if provider == "exa":
+    if provider in ("auto", "", None):
+        # Auto-pick first configured provider with fallback to duckduckgo
+        if os.environ.get("EXA_API_KEY"):
+            return _exa_search(query, n)
+        elif os.environ.get("TAVILY_API_KEY"):
+            return _tavily_search(query, n)
+        elif os.environ.get("PERPLEXITY_API_KEY"):
+            return _perplexity_search(query, n)
+        else:
+            return _search_duckduckgo(query, n)
+    elif provider == "exa":
         return _exa_search(query, n)
     elif provider == "tavily":
         return _tavily_search(query, n)
@@ -175,7 +185,7 @@ def _dispatch(provider: str, query: str, n: int) -> list[WebSearchResult]:
     else:
         raise ValueError(
             f"Unknown search provider: {provider!r}. "
-            "Use 'exa', 'tavily', 'duckduckgo', or 'perplexity'."
+            "Use 'exa', 'tavily', 'duckduckgo', 'perplexity', or 'auto'."
         )
 
 
