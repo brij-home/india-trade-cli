@@ -94,6 +94,37 @@ export default function Sidebar() {
         </div>
       </div>
 
+      {/* Quick Trading Tools */}
+      <div className="px-3 py-2 border-t border-border/50 bg-panel/30">
+        <p className="text-[10px] uppercase font-ui tracking-wider text-muted mb-1.5 px-1">Quick Tools</p>
+        <div className="grid grid-cols-2 gap-1 text-[11px] font-ui">
+          <button
+            onClick={() => useChatStore.getState().setDraft('brief')}
+            className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-muted hover:text-text hover:bg-elevated text-left transition-colors cursor-pointer"
+          >
+            <span>🌅</span> Brief
+          </button>
+          <button
+            onClick={() => useChatStore.getState().setDraft('scan')}
+            className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-muted hover:text-text hover:bg-elevated text-left transition-colors cursor-pointer"
+          >
+            <span>🔍</span> Scanner
+          </button>
+          <button
+            onClick={() => useChatStore.getState().setDraft('flows')}
+            className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-muted hover:text-text hover:bg-elevated text-left transition-colors cursor-pointer"
+          >
+            <span>🌊</span> Flows
+          </button>
+          <button
+            onClick={() => useChatStore.getState().setDraft('payoff NIFTY')}
+            className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-muted hover:text-text hover:bg-elevated text-left transition-colors cursor-pointer"
+          >
+            <span>🎯</span> Payoff
+          </button>
+        </div>
+      </div>
+
       {/* Broker status — compact, at bottom */}
       <div
         className="px-3 py-3 border-t border-border cursor-pointer hover:bg-elevated/50 transition-colors"
@@ -103,7 +134,7 @@ export default function Sidebar() {
           <div className="flex items-center gap-2">
             <span className="w-2 h-2 rounded-full bg-subtle flex-shrink-0" />
             <span className="text-[11px] text-muted font-ui">
-              {port ? 'No broker connected' : 'Starting...'}
+              {(port || window.__INDIA_TRADE_WEB__) ? 'No broker connected' : 'Starting...'}
             </span>
           </div>
         ) : (

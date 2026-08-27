@@ -43,17 +43,31 @@ from __future__ import annotations
 
 import json
 import queue as _queue_mod
+import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from typing import Any, Optional
+
+# Fix Windows charmap / cp1252 codec errors for unicode console prints
+if sys.platform == "win32":
+    if sys.stdout and hasattr(sys.stdout, "reconfigure"):
+        try:
+            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+    if sys.stderr and hasattr(sys.stderr, "reconfigure"):
+        try:
+            sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
 
 from rich.console import Console
 from rich.table import Table
 
 from agent.tools import ToolRegistry
 
-console = Console()
+console = Console(legacy_windows=False)
 
 
 # ── Data Models ──────────────────────────────────────────────

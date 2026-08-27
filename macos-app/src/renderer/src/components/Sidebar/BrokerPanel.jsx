@@ -49,6 +49,21 @@ const BROKERS = [
     loginPath: '/groww/login',
     keys: [],
   },
+  {
+    key:      'stoxkart',
+    name:     'Stoxkart',
+    color:    'text-[#06b6d4]',
+    loginPath: '/stoxkart/login',
+    portalUrl: 'https://stoxkart.com',
+    portalLabel: 'stoxkart.com',
+    keys: [
+      { env: 'STOXKART_API_KEY', label: 'API Key', placeholder: 'API Key', secret: false },
+      { env: 'STOXKART_API_SECRET', label: 'API Secret', placeholder: 'API Secret', secret: true },
+      { env: 'STOXKART_CLIENT_CODE', label: 'Client Code', placeholder: 'Client ID', secret: false },
+      { env: 'STOXKART_PASSWORD', label: 'Password', placeholder: 'Trading Password', secret: true },
+      { env: 'STOXKART_TOTP_SECRET', label: 'TOTP Secret (Optional)', placeholder: 'Base32 seed', secret: true },
+    ],
+  },
 ]
 
 export default function BrokerPanel({ onClose }) {

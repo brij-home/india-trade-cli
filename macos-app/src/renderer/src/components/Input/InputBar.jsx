@@ -147,6 +147,10 @@ function parseCommand(input) {
       const dte = parseInt(args[2]) || 30
       return { endpoint: '/skills/strategy', body: { symbol: sym, view, dte }, cardType: 'strategy' }
     }
+    case 'payoff': case 'sim': case 'simulator': {
+      const sym = args[0]?.toUpperCase() ?? 'NIFTY'
+      return { endpoint: '/skills/quote', body: { symbol: sym }, cardType: 'payoff' }
+    }
     case 'drift':
       return { endpoint: '/skills/drift', body: {}, cardType: 'drift' }
     case 'memory': case 'mem':
@@ -352,18 +356,24 @@ export default function InputBar() {
     : 'analyze INFY · gex NIFTY · strategy NIFTY bullish · whatif nifty -5 · …'
 
   return (
-    <div className="flex-shrink-0 border-t border-border bg-panel px-4 py-3">
+    <div className="flex-shrink-0 border-t border-border bg-panel px-4 py-3 shadow-lg">
       {/* #113 banner — visible while streaming */}
       {isStreaming && (
         <div className="mb-2 px-1 flex items-center gap-2">
-          <span className="text-[10px] animate-pulse text-blue font-ui">◆</span>
-          <span className="text-[10px] text-muted font-ui">
-            Analysis running — type to shape the synthesis
+          <span className="text-[10px] animate-pulse text-amber font-ui">◆</span>
+          <span className="text-[11px] text-amber font-ui font-semibold">
+            Multi-Agent Analysis in progress — type additional context or constraints to shape the synthesis
           </span>
         </div>
       )}
-      <div className={`flex items-center gap-3 bg-elevated border rounded-xl px-4 py-2.5 ${isStreaming ? 'border-amber/30' : 'border-border'}`}>
-        <span className={`text-sm font-mono flex-shrink-0 ${isStreaming ? 'text-amber animate-pulse' : 'text-amber'}`}>›</span>
+      <div className={`flex items-center gap-3 bg-surface border rounded-xl px-4 py-2.5 transition-all shadow-xs ${
+        isStreaming
+          ? 'border-amber/50 ring-1 ring-amber/20'
+          : 'border-border/80 focus-within:border-amber/60 focus-within:ring-2 focus-within:ring-amber/10'
+      }`}>
+        <span className={`text-sm font-mono flex-shrink-0 ${isStreaming ? 'text-amber animate-pulse' : 'text-amber font-bold'}`}>
+          ❯
+        </span>
         <input
           ref={inputRef}
           type="text"
@@ -372,22 +382,39 @@ export default function InputBar() {
           onKeyDown={onKeyDown}
           placeholder={placeholder}
           disabled={!ready || (isLoading && !isStreaming)}
-          className="flex-1 bg-transparent text-text text-sm font-mono outline-none
-                     placeholder:text-subtle disabled:opacity-50"
+          className="flex-1 bg-transparent text-text text-sm font-mono outline-none placeholder:text-muted/60 disabled:opacity-50"
           autoFocus
         />
+        {value && (
+          <button
+            onClick={() => setValue('')}
+            className="text-muted hover:text-text text-xs p-1 rounded transition-colors"
+            title="Clear"
+          >
+            ✕
+          </button>
+        )}
         <button
           onClick={submit}
           disabled={!value.trim() || (isLoading && !isStreaming) || !ready}
-          className="text-amber text-sm font-mono disabled:opacity-30 hover:opacity-80 transition-opacity"
+          className="px-2.5 py-1 rounded-lg bg-amber hover:bg-amber/90 text-black font-ui font-bold text-xs shadow-xs disabled:opacity-30 disabled:hover:bg-amber transition-all cursor-pointer"
         >
-          ↵
+          Send ↵
         </button>
       </div>
-      <div className="flex items-center justify-between mt-1.5 px-1">
-        <p className="text-subtle text-[10px] font-ui truncate">
-          analyze INFY · oi NIFTY · greeks · scan · funds · orders · alerts · patterns · da RELIANCE · iv-smile NIFTY · gex NIFTY · delta-hedge · risk-report · whatif nifty -5 · strategy NIFTY bullish · drift · memory
-        </p>
+      <div className="flex items-center justify-between mt-2 px-1 text-[11px] font-ui text-muted">
+        <div className="flex items-center gap-1.5 overflow-x-auto truncate">
+          <span className="text-[10px] uppercase tracking-wider text-muted/70 font-semibold">Try:</span>
+          {['analyze RELIANCE', 'oi NIFTY', 'payoff NIFTY', 'scan', 'brief', 'flows'].map((cmd) => (
+            <button
+              key={cmd}
+              onClick={() => setValue(cmd)}
+              className="text-muted hover:text-amber text-[10px] font-mono bg-elevated hover:bg-panel px-1.5 py-0.5 rounded border border-border/40 transition-colors cursor-pointer"
+            >
+              {cmd}
+            </button>
+          ))}
+        </div>
         <BrokerRouting />
       </div>
     </div>

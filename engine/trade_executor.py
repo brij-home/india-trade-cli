@@ -30,7 +30,7 @@ import os
 
 from rich.console import Console
 from rich.panel import Panel
-from rich.prompt import Confirm
+from rich.prompt import Confirm, Prompt
 from rich.table import Table
 
 from brokers.base import BrokerAPI, OrderRequest
@@ -307,15 +307,38 @@ def execute_trade_plan(
 
     live = is_live_execution_allowed(broker)
 
-    # ── Live execution gate ───────────────────────────────────
+    # ── Live execution gate: Crystal-Clear Double Confirmation ─────────────────
     if live and not skip_confirmation:
         _show_order_preview(plan, broker)
-        confirmed = Confirm.ask(
-            "[bold red]Send these orders to the exchange? This uses real money.[/bold red]",
+        b_name = getattr(broker.get_profile(), "broker", "Connected Broker")
+        console.print(
+            Panel(
+                f"[bold red]🚨 REAL BROKER ORDER TRANSMISSION[/bold red]\n\n"
+                f"You are about to transmit real financial orders to broker: [bold yellow]{b_name}[/bold yellow]\n"
+                f"• Target Symbol: [bold white]{plan.symbol}[/bold white]\n"
+                f"• Strategy: [bold cyan]{plan.strategy_name}[/bold cyan]\n"
+                f"• Order Count: [bold]{len(plan.entry_orders)} order(s)[/bold]\n"
+                f"• Capital Mode: [bold red]LIVE (Real money will be utilized)[/bold red]\n\n"
+                f"[yellow]⚠ Please review all order legs, prices, and quantities above before confirming.[/yellow]",
+                title="[bold red]Double Confirmation — Step 1 of 2[/bold red]",
+                border_style="red",
+            )
+        )
+        step1 = Confirm.ask(
+            "[bold yellow]Step 1: Have you verified the order parameters above and wish to proceed?[/bold yellow]",
             default=False,
         )
-        if not confirmed:
-            console.print("[dim]Execution cancelled.[/dim]")
+        if not step1:
+            console.print("[dim]Execution cancelled at Step 1.[/dim]")
+            return []
+
+        console.print(
+            "\n[bold red]⚠ FINAL DOUBLE-CONFIRMATION (Step 2 of 2):[/bold red]\n"
+            f"Type [bold green]CONFIRM[/bold green] to immediately transmit orders to [bold yellow]{b_name}[/bold yellow], or any other key to abort:"
+        )
+        step2 = Prompt.ask("  Double Confirmation", default="CANCEL")
+        if step2.strip().upper() != "CONFIRM":
+            console.print("[dim]Execution cancelled: Did not match 'CONFIRM'. No orders were sent.[/dim]")
             return []
 
     # ── Paper override warning ────────────────────────────────

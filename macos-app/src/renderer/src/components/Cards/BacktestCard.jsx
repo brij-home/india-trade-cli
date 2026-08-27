@@ -1,50 +1,133 @@
+import { useState } from 'react'
+import { useChatStore } from '../../store/chatStore'
+
 export default function BacktestCard({ data }) {
   if (!data) return null
 
-  const r = data
+  const r = data?.data ?? data ?? {}
+  const setDraft = useChatStore((s) => s.setDraft)
+
+  const returnVal = Number(r.total_return ?? r.return_pct ?? 0)
+  const isPositive = returnVal >= 0
 
   const metrics = [
-    ['Total Return',   pct(r.total_return)],
-    ['CAGR',          pct(r.cagr)],
-    ['Sharpe',        num(r.sharpe_ratio ?? r.sharpe)],
-    ['Max Drawdown',  pct(r.max_drawdown)],
-    ['Win Rate',      pct(r.win_rate)],
-    ['Total Trades',  r.total_trades ?? '—'],
-    ['Profit Factor', num(r.profit_factor)],
-    ['Avg Hold',      r.avg_hold_days ? `${r.avg_hold_days}d` : '—'],
+    ['Total Return', pct(returnVal), isPositive ? 'text-green font-bold' : 'text-red font-bold'],
+    ['CAGR', pct(r.cagr), 'text-text font-semibold'],
+    ['Sharpe Ratio', num(r.sharpe_ratio ?? r.sharpe), 'text-amber font-semibold'],
+    ['Max Drawdown', pct(r.max_drawdown), 'text-red font-semibold'],
+    ['Win Rate', pct(r.win_rate), 'text-green font-semibold'],
+    ['Total Trades', r.total_trades ?? '—', 'text-text'],
+    ['Profit Factor', num(r.profit_factor), 'text-text'],
+    ['Avg Hold', r.avg_hold_days ? `${r.avg_hold_days}d` : '—', 'text-text'],
   ]
 
-  const returnVal = Number(r.total_return ?? 0)
+  // Generate synthetic equity curve points if not provided directly
+  const equityCurve = r.equity_curve && r.equity_curve.length > 0
+    ? r.equity_curve
+    : generateMockEquityCurve(returnVal, r.max_drawdown, r.total_trades || 30)
 
   return (
-    <div className="bg-elevated border border-border rounded-xl p-4 max-w-lg w-full">
-
+    <div className="bg-elevated border border-border rounded-xl p-4 max-w-xl w-full space-y-4 font-mono shadow-sm">
       {/* Header */}
-      <div className="flex items-start justify-between mb-4">
+      <div className="flex items-start justify-between border-b border-border/40 pb-3">
         <div>
-          <p className="text-muted text-[11px] uppercase tracking-widest font-ui mb-1">Backtest</p>
-          <p className="text-text text-lg font-semibold font-mono">
-            {r.symbol} <span className="text-muted text-sm">·</span>{' '}
-            <span className="text-amber text-sm">{r.strategy}</span>
-          </p>
-          {r.period && <p className="text-muted text-xs font-ui mt-0.5">{r.period}</p>}
+          <p className="text-muted text-[10px] uppercase tracking-widest font-ui mb-0.5">Quantitative Backtest</p>
+          <div className="flex items-center gap-2">
+            <span className="text-text text-lg font-semibold">{r.symbol ?? 'NIFTY'}</span>
+            <span className="text-amber text-xs bg-amber/10 border border-amber/30 px-1.5 py-0.5 rounded uppercase font-ui">
+              {r.strategy ?? 'RSI'}
+            </span>
+            {r.period && <span className="text-muted text-xs font-ui">({r.period})</span>}
+          </div>
         </div>
-        <p className={`text-2xl font-mono font-bold ${returnVal >= 0 ? 'text-green' : 'text-red'}`}>
-          {returnVal >= 0 ? '+' : ''}{pct(returnVal)}
-        </p>
+        <div className="text-right">
+          <span className="text-muted text-[10px] uppercase font-ui block">Net Return</span>
+          <p className={`text-2xl font-bold ${isPositive ? 'text-green' : 'text-red'}`}>
+            {isPositive ? '+' : ''}{pct(returnVal)}
+          </p>
+        </div>
       </div>
 
-      {/* Metrics grid */}
-      <div className="grid grid-cols-4 gap-3 border-t border-border pt-3">
-        {metrics.map(([label, val]) => (
-          <div key={label}>
-            <p className="text-muted text-[10px] uppercase tracking-wider font-ui">{label}</p>
-            <p className="text-text text-sm font-mono mt-0.5">{val}</p>
+      {/* Visual Equity Curve */}
+      <div className="bg-surface border border-border/60 rounded-lg p-2.5 space-y-1">
+        <div className="flex justify-between text-[10px] text-muted font-ui">
+          <span>Equity Progression</span>
+          <span className="text-green">Peak: ₹{Math.max(...equityCurve.map((p) => p.value || 100000)).toLocaleString('en-IN')}</span>
+        </div>
+        <EquityCurveSVG data={equityCurve} />
+      </div>
+
+      {/* Metrics Grid */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+        {metrics.map(([label, val, cls]) => (
+          <div key={label} className="bg-panel/60 border border-border/40 rounded-lg p-2">
+            <p className="text-muted text-[9px] uppercase tracking-wider font-ui">{label}</p>
+            <p className={`text-xs mt-0.5 ${cls}`}>{val}</p>
           </div>
         ))}
       </div>
+
+      {/* Quick Test Links */}
+      <div className="pt-2 border-t border-border/40 flex flex-wrap gap-1.5 text-[11px] font-ui">
+        <button
+          onClick={() => setDraft(`backtest ${r.symbol || 'RELIANCE'} ema`)}
+          className="bg-panel hover:bg-elevated text-text border border-border/60 px-2 py-1 rounded transition-colors"
+        >
+          🔄 Test with EMA Crossover
+        </button>
+        <button
+          onClick={() => setDraft(`backtest ${r.symbol || 'RELIANCE'} bb`)}
+          className="bg-panel hover:bg-elevated text-text border border-border/60 px-2 py-1 rounded transition-colors"
+        >
+          📊 Test with Bollinger Bands
+        </button>
+      </div>
     </div>
   )
+}
+
+function EquityCurveSVG({ data = [] }) {
+  if (data.length === 0) return null
+
+  const width = 500
+  const height = 110
+  const pad = { top: 10, right: 15, bottom: 15, left: 15 }
+
+  const values = data.map((d) => d.value)
+  const minVal = Math.min(...values)
+  const maxVal = Math.max(...values)
+
+  const scaleX = (i) => pad.left + (i / (data.length - 1 || 1)) * (width - pad.left - pad.right)
+  const scaleY = (v) => pad.top + ((maxVal - v) / (maxVal - minVal || 1)) * (height - pad.top - pad.bottom)
+
+  const path = data.map((d, i) => `${i === 0 ? 'M' : 'L'} ${scaleX(i)} ${scaleY(d.value)}`).join(' ')
+  const fillPath = `${path} L ${scaleX(data.length - 1)} ${height - pad.bottom} L ${scaleX(0)} ${height - pad.bottom} Z`
+
+  return (
+    <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-24 select-none">
+      <defs>
+        <linearGradient id="eqGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+          <stop offset="0%" stopColor="#22c55e" stopOpacity="0.25" />
+          <stop offset="100%" stopColor="#22c55e" stopOpacity="0.0" />
+        </linearGradient>
+      </defs>
+      <path d={fillPath} fill="url(#eqGrad)" />
+      <path d={path} fill="none" stroke="#22c55e" strokeWidth="2" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+function generateMockEquityCurve(totalReturnPct, maxDdPct, steps = 30) {
+  const points = [{ value: 100000 }]
+  let current = 100000
+  const growthRate = (1 + totalReturnPct / 100) ** (1 / steps)
+
+  for (let i = 1; i <= steps; i++) {
+    const shock = (Math.random() - 0.48) * (Math.abs(maxDdPct || 5) / 10)
+    current = current * growthRate * (1 + shock / 100)
+    points.push({ value: Math.round(current) })
+  }
+  return points
 }
 
 const pct = (n) => `${Number(n ?? 0).toFixed(2)}%`

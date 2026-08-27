@@ -57,7 +57,21 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 from abc import ABC, abstractmethod
+
+# Fix Windows charmap / cp1252 codec errors for unicode console prints
+if sys.platform == "win32":
+    if sys.stdout and hasattr(sys.stdout, "reconfigure"):
+        try:
+            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+    if sys.stderr and hasattr(sys.stderr, "reconfigure"):
+        try:
+            sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
 
 from rich.console import Console
 
@@ -65,7 +79,7 @@ from agent.prompts import build_system_prompt
 from agent.tools import build_registry, ToolRegistry
 from config.credentials import get_credential
 
-console = Console()
+console = Console(legacy_windows=False)
 
 
 # ── Constants ──────────────────────────────────────────────────
@@ -2489,10 +2503,19 @@ def _format_tool_results_directly(collected: list[str], user_msg: str) -> str:
 def _print_tool_call(name: str, args: dict) -> None:
     """Subtle tool-call indicator in the terminal."""
     args_str = ", ".join(f"{k}={json.dumps(v)}" for k, v in args.items()) if args else ""
-    console.print(
-        f"  [dim cyan]⚙  {name}({args_str})[/dim cyan]",
-        highlight=False,
-    )
+    try:
+        console.print(
+            f"  [dim cyan]⚙  {name}({args_str})[/dim cyan]",
+            highlight=False,
+        )
+    except Exception:
+        try:
+            console.print(
+                f"  [dim cyan]>  {name}({args_str})[/dim cyan]",
+                highlight=False,
+            )
+        except Exception:
+            pass
 
 
 # ── Dual LLM routing helpers (#91) ────────────────────────────

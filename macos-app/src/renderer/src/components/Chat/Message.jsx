@@ -29,6 +29,7 @@ import MemoryCard         from '../Cards/MemoryCard'
 import AuditCard          from '../Cards/AuditCard'
 import TelegramCard       from '../Cards/TelegramCard'
 import ProviderCard       from '../Cards/ProviderCard'
+import PayoffSimulatorCard from '../Cards/PayoffSimulatorCard'
 
 export default function Message({ message }) {
   const { role, text, cardType, data } = message
@@ -70,6 +71,8 @@ export default function Message({ message }) {
     case 'walkforward':        return <WalkForwardCard data={data} />
     case 'whatif':             return <WhatIfCard data={data} />
     case 'strategy':           return <StrategyCard data={data} />
+    case 'payoff':
+    case 'payoff_sim':         return <PayoffSimulatorCard initialSymbol={data?.symbol || 'NIFTY'} initialSpot={data?.spot_price || data?.last_price || 24000} />
     case 'drift':              return <DriftCard data={data} />
     case 'pairs':              return <PairsCard data={data} />
     case 'memory':             return <MemoryCard data={data} />

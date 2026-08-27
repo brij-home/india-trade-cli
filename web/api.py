@@ -45,7 +45,21 @@ Register these redirect URIs in your broker developer consoles:
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
+
+# Fix Windows charmap / cp1252 codec errors for unicode console prints
+if sys.platform == "win32":
+    if sys.stdout and hasattr(sys.stdout, "reconfigure"):
+        try:
+            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+    if sys.stderr and hasattr(sys.stderr, "reconfigure"):
+        try:
+            sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
 
 from fastapi import FastAPI, Request as _Request
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, StreamingResponse
@@ -521,6 +535,32 @@ def _fyers_auth() -> bool:
     return _cached_auth("fyers", _check)
 
 
+# Stoxkart
+def _has_stoxkart() -> bool:
+    return bool(_env("STOXKART_API_KEY") and _env("STOXKART_CLIENT_CODE"))
+
+
+def _stoxkart_auth() -> bool:
+    def _check():
+        try:
+            if not _has_stoxkart():
+                return False
+            from brokers.stoxkart import StoxkartAPI
+
+            b = StoxkartAPI(
+                api_key=_env("STOXKART_API_KEY"),
+                api_secret=_env("STOXKART_API_SECRET"),
+                client_code=_env("STOXKART_CLIENT_CODE"),
+                password=_env("STOXKART_PASSWORD"),
+                totp_secret=_env("STOXKART_TOTP_SECRET"),
+            )
+            return b.is_authenticated
+        except Exception:
+            return False
+
+    return _cached_auth("stoxkart", _check)
+
+
 # ── Shared success card ───────────────────────────────────────
 
 
@@ -948,6 +988,59 @@ async def fyers_callback(auth_code: str = "", state: str = "", s: str = ""):
     )
 
 
+# ── Stoxkart (SMC Global — Free API) ──────────────────────────
+
+
+@app.get("/stoxkart/login", response_class=HTMLResponse)
+async def stoxkart_login():
+    if not _has_stoxkart():
+        body = """<div class="card">
+          <div class="info-box">
+            <strong>Stoxkart API (SMC Global)</strong> — free, official, zero monthly fee.<br><br>
+            Set credentials in <code>.env</code> or run <code>credentials setup</code>:<br>
+            1. <code>STOXKART_API_KEY</code> &amp; <code>STOXKART_API_SECRET</code><br>
+            2. <code>STOXKART_CLIENT_CODE</code> &amp; <code>STOXKART_PASSWORD</code><br>
+            3. (Optional) <code>STOXKART_TOTP_SECRET</code> for 2FA auto-login.<br>
+          </div>
+          <a href="/" class="btn btn-back">← Back</a>
+        </div>"""
+        return HTMLResponse(_page("Stoxkart Setup", body), status_code=400)
+    try:
+        from brokers.stoxkart import StoxkartAPI
+        from brokers.session import register_broker
+
+        b = StoxkartAPI(
+            api_key=_env("STOXKART_API_KEY"),
+            api_secret=_env("STOXKART_API_SECRET"),
+            client_code=_env("STOXKART_CLIENT_CODE"),
+            password=_env("STOXKART_PASSWORD"),
+            totp_secret=_env("STOXKART_TOTP_SECRET"),
+        )
+        b.authenticate()
+        profile = b.get_profile()
+        funds = b.get_funds()
+        register_broker("stoxkart", b)
+        _invalidate_auth_cache("stoxkart")
+    except Exception as e:
+        body = f"""<div class="card"><div class="err-box">
+          ❌ Stoxkart login failed: {e}<br><br>
+          Check STOXKART_API_KEY, STOXKART_CLIENT_CODE, and STOXKART_PASSWORD.
+        </div><a href="/" class="btn btn-back">← Try again</a></div>"""
+        return HTMLResponse(_page("Error", body), status_code=500)
+    return HTMLResponse(
+        _page(
+            "Connected",
+            _success_card(
+                "Stoxkart",
+                "btn-stoxkart",
+                profile,
+                funds,
+                "Stoxkart / SMC — free API, live quotes, and automated execution.",
+            ),
+        )
+    )
+
+
 # ── Demo mode ─────────────────────────────────────────────────
 
 
@@ -980,7 +1073,7 @@ async def demo():
       </a>
       <a href="/" class="btn btn-back">← Back</a>
     </div>"""
-    return HTMLResponse(_page("Demo", body))
+    return HTMLResponse(_page("Demo Mode", body))
 
 
 # ── Status page ───────────────────────────────────────────────
@@ -1010,6 +1103,7 @@ async def status_page():
         ),
         ("upstox", "Upstox", "badge-upstox", "/upstox/login", "#c4b5fd", _has_upstox, _upstox_auth),
         ("fyers", "Fyers", "badge-fyers", "/fyers/login", "#fed7aa", _has_fyers, _fyers_auth),
+        ("stoxkart", "Stoxkart", "badge-stoxkart", "/stoxkart/login", "#06b6d4", _has_stoxkart, _stoxkart_auth),
     ]
     rows = []
     for bkey, bname, badge_cls, login_path, color, has_fn, auth_fn in _BROKERS:
@@ -1071,7 +1165,32 @@ async def api_status(request: Request):
             "authenticated": _fyers_auth(),
             "role": get_broker_role("fyers"),
         },
+        "stoxkart": {
+            "configured": _has_stoxkart(),
+            "authenticated": _stoxkart_auth(),
+            "role": get_broker_role("stoxkart"),
+        },
     }
+
+
+# ── Cache & Data Persistence Stats API ───────────────────────
+
+
+@app.get("/api/cache/stats")
+async def api_cache_stats(request: Request):
+    _require_localhost(request)
+    from engine.analysis_cache import analysis_cache
+
+    return analysis_cache.get_stats()
+
+
+@app.post("/api/cache/clear")
+async def api_cache_clear(request: Request):
+    _require_localhost(request)
+    from engine.analysis_cache import analysis_cache
+
+    cleared = analysis_cache.invalidate()
+    return {"status": "ok", "cleared_records": cleared}
 
 
 # ── Onboarding API ───────────────────────────────────────────
@@ -1744,8 +1863,9 @@ if os.path.isdir(_static_dir):
     from fastapi.staticfiles import StaticFiles
     from fastapi.responses import FileResponse
 
+    @app.get("/app")
     @app.get("/app/{rest_of_path:path}")
-    async def serve_spa(rest_of_path: str):
+    async def serve_spa(rest_of_path: str = ""):
         """Serve React SPA for all /app/* routes."""
         index = os.path.join(_static_dir, "index.html")
         if os.path.exists(index):

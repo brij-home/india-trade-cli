@@ -79,6 +79,8 @@ COMMANDS = [
     "ai",
     "alert",
     "alerts",
+    "cache",
+    "deals",
     "audit",
     "backtest",
     "persona",
@@ -1984,6 +1986,33 @@ elif command == "quick":
                         )
                         tbl.caption = f"{len(exports)} files | {total_str} total | ~/.trading_platform/exports/"
                         console.print(tbl)
+
+            # ── Data persistence & cache management ───────────────
+            elif command == "cache":
+                from engine.analysis_cache import analysis_cache
+                from rich.panel import Panel
+
+                sub = args[0].lower() if args else "status"
+
+                if sub == "clear":
+                    cleared = analysis_cache.invalidate()
+                    console.print(f"[green]✓ Analysis and macro cache cleared ({cleared} entries removed).[/green]")
+                else:
+                    stats = analysis_cache.get_stats()
+                    lines = [
+                        f"[bold]Cached Analyses :[/bold] [cyan]{stats['total_cached_analyses']}[/cyan] (Max: 500)",
+                        f"[bold]Total Cache Hits:[/bold] [green]{stats['total_cache_hits']}[/green]",
+                        f"[bold]AI Tokens Saved :[/bold] [bold green]~{stats['total_tokens_saved']:,}[/bold green]",
+                        f"[bold]Database Storage:[/bold] {stats['db_size_kb']:.1f} KB ({stats['db_path']})",
+                        f"[bold]Intraday TTL    :[/bold] 15 Minutes (or price drift > 1.0%)",
+                    ]
+                    console.print(
+                        Panel(
+                            "\n".join(lines),
+                            title="[bold cyan]⚡ Data Persistence & AI Token Optimizer[/bold cyan]",
+                            border_style="cyan",
+                        )
+                    )
 
             # ── Post-processing commands (operate on previous output) ──
             elif command == "save-pdf":

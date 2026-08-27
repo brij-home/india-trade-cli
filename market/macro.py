@@ -83,7 +83,27 @@ _MACRO_LINKAGES = {
 
 
 def get_macro_snapshot() -> MacroSnapshot:
-    """Fetch current macro indicators via yfinance."""
+    """Fetch current macro indicators with 15-minute persistent caching."""
+    try:
+        from engine.analysis_cache import analysis_cache
+
+        cached = analysis_cache.get_macro("macro_snapshot")
+        if cached and isinstance(cached, dict):
+            return MacroSnapshot(
+                usdinr=cached.get("usdinr"),
+                usdinr_change=cached.get("usdinr_change"),
+                crude_oil=cached.get("crude_oil"),
+                crude_change=cached.get("crude_change"),
+                gold=cached.get("gold"),
+                gold_change=cached.get("gold_change"),
+                us_10y=cached.get("us_10y"),
+                us_10y_change=cached.get("us_10y_change"),
+                dxy=cached.get("dxy"),
+                dxy_change=cached.get("dxy_change"),
+            )
+    except Exception:
+        pass
+
     try:
         from market.yfinance_provider import _get_yf
 
@@ -142,6 +162,25 @@ def get_macro_snapshot() -> MacroSnapshot:
             prev = float(info.get("previousClose", 0) or info.get("previous_close", 0) or 0)
             if snap.dxy and prev:
                 snap.dxy_change = round((snap.dxy - prev) / prev * 100, 2)
+        except Exception:
+            pass
+
+        # Save to macro cache (15-min TTL)
+        try:
+            from engine.analysis_cache import analysis_cache
+
+            analysis_cache.save_macro("macro_snapshot", {
+                "usdinr": snap.usdinr,
+                "usdinr_change": snap.usdinr_change,
+                "crude_oil": snap.crude_oil,
+                "crude_change": snap.crude_change,
+                "gold": snap.gold,
+                "gold_change": snap.gold_change,
+                "us_10y": snap.us_10y,
+                "us_10y_change": snap.us_10y_change,
+                "dxy": snap.dxy,
+                "dxy_change": snap.dxy_change,
+            }, ttl_minutes=15)
         except Exception:
             pass
 

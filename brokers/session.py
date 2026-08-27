@@ -79,6 +79,8 @@ _BROKER_NAMES = {
     "upstox": "upstox",
     "5": "fyers",
     "fyers": "fyers",
+    "6": "stoxkart",
+    "stoxkart": "stoxkart",
 }
 
 _BROKER_LABELS = {
@@ -88,10 +90,11 @@ _BROKER_LABELS = {
     "angelone": "[bold yellow]Angel One (SmartAPI)[/bold yellow]",
     "upstox": "[magenta]Upstox[/magenta]",
     "fyers": "[blue]Fyers[/blue]",
+    "stoxkart": "[bold cyan]Stoxkart (SMC)[/bold cyan]",
 }
 
 # Brokers that use TOTP auto-login (no browser redirect)
-_TOTP_BROKERS = {"angelone"}
+_TOTP_BROKERS = {"angelone", "stoxkart"}
 
 # Broker menu display items (number, label, description)
 _BROKER_MENU = [
@@ -101,6 +104,7 @@ _BROKER_MENU = [
     ("3", "Angel One", "SmartAPI — free, TOTP auto-login"),
     ("4", "Upstox", "API v3 — redirect login"),
     ("5", "Fyers", "API v3 — redirect login"),
+    ("6", "Stoxkart", "SMC API — free, live data & execution"),
 ]
 
 
@@ -117,26 +121,21 @@ def register_broker(
     through the interactive login flow.
 
     Args:
-        key:     Broker name (lowercase), e.g. "fyers", "zerodha".
+        key:     Broker name (lowercase), e.g. "stoxkart", "fyers", "zerodha".
         broker:  Authenticated BrokerAPI instance.
         primary: If True, set as the primary broker.
         role:    Optional role: "data", "execution", or "both".
-                 If omitted, the broker fills whichever slot(s) are empty.
+                 Defaults strictly to "data" for safety.
     """
     global _brokers, _primary_key, _data_key, _exec_key
     _brokers[key] = broker
     if primary or not _primary_key:
         _primary_key = key
-    if role in ("data", "both"):
-        _data_key = key
+    if role in ("data", "both") or role is None:
+        if not _data_key or role in ("data", "both"):
+            _data_key = key
     if role in ("execution", "both"):
         _exec_key = key
-    # If no explicit role, fill empty slots so the broker is reachable
-    if role is None:
-        if not _data_key:
-            _data_key = key
-        if not _exec_key:
-            _exec_key = key
 
 
 def unregister_broker(key: str) -> None:
@@ -398,6 +397,26 @@ def _make_broker(choice: str) -> tuple[str, BrokerAPI]:
             redirect_uri=redirect_uri,
         )
 
+    elif key == "stoxkart":
+        from .stoxkart import StoxkartAPI
+
+        api_key = get_credential("STOXKART_API_KEY", "Stoxkart API Key", secret=False, required=False)
+        api_secret = get_credential("STOXKART_API_SECRET", "Stoxkart API Secret", secret=True, required=False)
+        client_code = get_credential(
+            "STOXKART_CLIENT_CODE", "Stoxkart Client Code (Login ID)", secret=False, required=False
+        )
+        password = get_credential("STOXKART_PASSWORD", "Stoxkart Trading Password", secret=True, required=False)
+        totp_secret = get_credential(
+            "STOXKART_TOTP_SECRET", "Stoxkart TOTP Secret", secret=True, required=False
+        )
+        return key, StoxkartAPI(
+            api_key=api_key,
+            api_secret=api_secret,
+            client_code=client_code,
+            password=password,
+            totp_secret=totp_secret,
+        )
+
     else:  # fyers
         from .fyers import FyersAPI
 
@@ -439,6 +458,7 @@ def _poll_sidecar_auth(broker_key: str, port: int, timeout: int = 180) -> dict[s
         "groww": "groww",
         "angelone": "angel_one",
         "upstox": "upstox",
+        "stoxkart": "stoxkart",
     }
     status_key = _STATUS_KEYS.get(broker_key, broker_key)
     deadline = time.time() + timeout
@@ -557,6 +577,13 @@ def _recreate_broker_from_token(key: str):
                 )
                 if b.is_authenticated():
                     return b
+        elif key == "stoxkart":
+            from brokers.stoxkart import StoxkartAPI, TOKEN_FILE
+
+            if TOKEN_FILE.exists():
+                b = StoxkartAPI()
+                if b.is_authenticated:
+                    return b
     except Exception:
         pass
     return None
@@ -567,10 +594,13 @@ def _do_auth(key: str, broker: BrokerAPI) -> BrokerAPI:
     Returns the (possibly recreated) broker instance."""
     from urllib.parse import urlparse
 
-    # Angel One: fully automated TOTP login — no browser redirect needed
+    # Angel One & Stoxkart: automated TOTP login — no browser redirect needed
     if key in _TOTP_BROKERS:
-        console.print(f"\n[bold cyan]🔐 Logging in to {key.title()} via TOTP…[/bold cyan]")
-        broker.complete_login()
+        console.print(f"\n[bold cyan]🔐 Logging in to {key.title()} via credentials/TOTP…[/bold cyan]")
+        if hasattr(broker, "complete_login"):
+            broker.complete_login()
+        elif hasattr(broker, "authenticate"):
+            broker.authenticate()
         return broker
 
     login_url = broker.get_login_url()
@@ -752,15 +782,16 @@ def login(choice: Optional[str] = None) -> BrokerAPI:
 
     _brokers[key] = broker
     _primary_key = key
-    _data_key = key  # login = data broker
-    _exec_key = key  # also handles execution until connect() is called
+    _data_key = key  # login = default data broker
+    if key == "mock":
+        _exec_key = key  # mock can handle execution by default
 
     # Skip _print_welcome on resume (it makes slow API calls)
     # Just show broker name
     if broker.is_authenticated():
-        console.print(f"[green]  Connected: {key.title()}[/green]")
+        console.print(f"[green]  Connected: {key.title()} (Role: DATA)[/green]")
     else:
-        _print_welcome(broker, role="primary")
+        _print_welcome(broker, role="data")
 
     # Auto-start WebSocket in background (non-blocking)
     if key == "fyers":
@@ -781,7 +812,7 @@ def connect_broker(choice: Optional[str] = None) -> BrokerAPI:
     Connect an additional broker without replacing the primary.
 
     Useful for viewing a combined Zerodha + Groww portfolio.
-    The primary broker (used for order placement) does not change.
+    The primary broker (used for market data) does not change.
 
     Args:
         choice: "1"/"zerodha" or "2"/"groww". Prompted if None.
@@ -789,7 +820,7 @@ def connect_broker(choice: Optional[str] = None) -> BrokerAPI:
     Returns:
         The newly connected BrokerAPI instance.
     """
-    global _brokers, _exec_key
+    global _brokers, _data_key
 
     if not _brokers:
         console.print("[yellow]No primary broker yet. Use 'login' first.[/yellow]")
@@ -821,15 +852,15 @@ def connect_broker(choice: Optional[str] = None) -> BrokerAPI:
             _do_auth(key, broker)
 
     _brokers[key] = broker
-    _exec_key = key  # connect = execution broker; data pointer unchanged
-    _print_welcome(broker, role="connected")
+    if not _data_key:
+        _data_key = key
+    _print_welcome(broker, role="data")
 
     console.print(
         f"\n[green]✓  {len(_brokers)} broker(s) now active.[/green]  "
-        f"Primary: [bold]{_primary_key.title()}[/bold]  |  "
-        f"Type [bold]brokers[/bold] to see all.\n"
+        f"Data: [bold]{_data_key.title()}[/bold]  |  "
+        f"Type [bold]brokers[/bold] to manage roles.\n"
     )
-    auto_assign_roles()
     return broker
 
 

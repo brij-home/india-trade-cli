@@ -43,8 +43,23 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
+import sys
 from typing import Optional
 from uuid import uuid4
+
+# Fix Windows charmap / cp1252 codec errors for unicode console prints
+if sys.platform == "win32":
+    if sys.stdout and hasattr(sys.stdout, "reconfigure"):
+        try:
+            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+    if sys.stderr and hasattr(sys.stderr, "reconfigure"):
+        try:
+            sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
@@ -103,6 +118,7 @@ class AnalyzeRequest(BaseModel):
     symbol: str
     exchange: str = "NSE"
     channel: str = "api"  # cli | electron | api | whatsapp (#179)
+    force: bool = False  # True -> bypass cache and force fresh LLM run
 
 
 class ChatRequest(BaseModel):
@@ -135,6 +151,40 @@ class HintRequest(BaseModel):
     hint: str
 
 
+class HistoryRequest(BaseModel):
+    symbol: str
+    exchange: str = "NSE"
+    interval: str = "day"  # day, 1h, 15m, 5m, 1m
+    days: int = 180
+
+
+class OptionLegItem(BaseModel):
+    action: str = "BUY"  # BUY | SELL
+    option_type: str = "CE"  # CE | PE | STOCK
+    strike: float
+    premium: float
+    lot_size: int = 25
+    lots: int = 1
+
+
+class PayoffSimRequest(BaseModel):
+    symbol: str = "NIFTY"
+    spot_price: float = 24000.0
+    dte: int = 7
+    iv: float = 14.0  # %
+    iv_shock: float = 0.0  # %
+    target_dte: int = 0  # 0 = expiry, > 0 = days remaining at evaluation
+    legs: list[OptionLegItem]
+
+
+class FlowsHistoryRequest(BaseModel):
+    days: int = 15
+
+
+class SectorHeatmapRequest(BaseModel):
+    exchange: str = "NSE"
+
+
 # ── Helper ────────────────────────────────────────────────────
 
 
@@ -162,6 +212,242 @@ async def skill_quote(req: SymbolRequest):
         return _ok(list(quotes.values())[0])
     except HTTPException:
         raise
+    except Exception as e:
+        raise _err(str(e))
+
+
+@router.post("/history")
+async def skill_history(req: HistoryRequest):
+    """Historical OHLCV candle data + technical moving averages for charting."""
+    try:
+        from market.history import get_ohlcv
+
+        df = get_ohlcv(req.symbol.upper(), req.exchange.upper(), interval=req.interval, days=req.days)
+        if df is None or df.empty:
+            return _ok({"symbol": req.symbol.upper(), "exchange": req.exchange.upper(), "interval": req.interval, "candles": [], "volumes": [], "sma20": [], "sma50": [], "sma200": []})
+
+        candles = []
+        volumes = []
+        is_intraday = req.interval not in ("day", "1d", "week", "1w")
+
+        for ts, row in df.iterrows():
+            t_val = int(ts.timestamp()) if is_intraday else ts.strftime("%Y-%m-%d")
+            c_open = round(float(row["open"]), 2)
+            c_high = round(float(row["high"]), 2)
+            c_low = round(float(row["low"]), 2)
+            c_close = round(float(row["close"]), 2)
+            c_vol = int(row.get("volume", 0))
+
+            candles.append({
+                "time": t_val,
+                "open": c_open,
+                "high": c_high,
+                "low": c_low,
+                "close": c_close,
+                "volume": c_vol,
+            })
+            volumes.append({
+                "time": t_val,
+                "value": c_vol,
+                "color": "rgba(34, 197, 94, 0.5)" if c_close >= c_open else "rgba(239, 68, 68, 0.5)",
+            })
+
+        sma20 = []
+        sma50 = []
+        sma200 = []
+        if len(df) >= 20:
+            s20 = df["close"].rolling(20).mean()
+            for ts, val in s20.dropna().items():
+                t_val = int(ts.timestamp()) if is_intraday else ts.strftime("%Y-%m-%d")
+                sma20.append({"time": t_val, "value": round(float(val), 2)})
+        if len(df) >= 50:
+            s50 = df["close"].rolling(50).mean()
+            for ts, val in s50.dropna().items():
+                t_val = int(ts.timestamp()) if is_intraday else ts.strftime("%Y-%m-%d")
+                sma50.append({"time": t_val, "value": round(float(val), 2)})
+        if len(df) >= 200:
+            s200 = df["close"].rolling(200).mean()
+            for ts, val in s200.dropna().items():
+                t_val = int(ts.timestamp()) if is_intraday else ts.strftime("%Y-%m-%d")
+                sma200.append({"time": t_val, "value": round(float(val), 2)})
+
+        return _ok({
+            "symbol": req.symbol.upper(),
+            "exchange": req.exchange.upper(),
+            "interval": req.interval,
+            "candles": candles,
+            "volumes": volumes,
+            "sma20": sma20,
+            "sma50": sma50,
+            "sma200": sma200,
+        })
+    except Exception as e:
+        raise _err(str(e))
+
+
+@router.post("/payoff")
+async def skill_payoff(req: PayoffSimRequest):
+    """
+    Compute multi-leg strategy payoff curve at expiry and T+target_dte,
+    along with Max Profit, Max Loss, Breakeven points, and aggregate Greeks.
+    """
+    try:
+        import math
+        from datetime import datetime, timedelta
+        import numpy as np
+        from scipy.stats import norm
+        from analysis.options import PayoffLeg, payoff, compute_greeks
+
+        if not req.legs:
+            return _ok({"error": "No legs provided"})
+
+        payoff_legs = [
+            PayoffLeg(
+                option_type=l.option_type.upper(),
+                transaction=l.action.upper(),
+                strike=float(l.strike),
+                premium=float(l.premium),
+                lot_size=int(l.lot_size),
+                lots=int(l.lots),
+            )
+            for l in req.legs
+        ]
+
+        avg_strike = sum(l.strike for l in req.legs) / len(req.legs)
+        lo = min(req.spot_price * 0.85, avg_strike * 0.85)
+        hi = max(req.spot_price * 1.15, avg_strike * 1.15)
+
+        exp_payoff = payoff(payoff_legs, spot_range=(lo, hi), steps=60)
+
+        eval_dte = max(0, req.target_dte)
+        eval_t = max(0.001, eval_dte / 365.0)
+        eval_iv = max(0.01, (req.iv + req.iv_shock) / 100.0)
+        rate = 0.065
+
+        t0_points = []
+        net_delta = 0.0
+        net_gamma = 0.0
+        net_theta = 0.0
+        net_vega = 0.0
+
+        for l in req.legs:
+            qty = l.lots * l.lot_size
+            mult = 1 if l.action.upper() == "BUY" else -1
+            expiry_date_str = (datetime.now() + timedelta(days=max(1, req.dte))).strftime("%Y-%m-%d")
+            g = compute_greeks(req.spot_price, l.strike, expiry_date_str, l.option_type, l.premium)
+            net_delta += g.delta * qty * mult
+            net_gamma += g.gamma * qty * mult
+            net_theta += g.theta * qty * mult
+            net_vega += g.vega * qty * mult
+
+        spots = np.linspace(lo, hi, 60)
+        for s in spots:
+            t0_pnl = 0.0
+            for l in req.legs:
+                qty = l.lots * l.lot_size
+                mult = 1 if l.action.upper() == "BUY" else -1
+                k = float(l.strike)
+                if eval_dte == 0:
+                    if l.option_type.upper() == "CE":
+                        val_at_exp = max(0.0, s - k)
+                    elif l.option_type.upper() == "PE":
+                        val_at_exp = max(0.0, k - s)
+                    else:
+                        val_at_exp = s
+                    theo = val_at_exp
+                else:
+                    d1 = (math.log(s / k) + (rate + 0.5 * eval_iv**2) * eval_t) / (eval_iv * math.sqrt(eval_t))
+                    d2 = d1 - eval_iv * math.sqrt(eval_t)
+                    if l.option_type.upper() == "CE":
+                        theo = s * norm.cdf(d1) - k * math.exp(-rate * eval_t) * norm.cdf(d2)
+                    elif l.option_type.upper() == "PE":
+                        theo = k * math.exp(-rate * eval_t) * norm.cdf(-d2) - s * norm.cdf(-d1)
+                    else:
+                        theo = s
+
+                leg_pnl = (theo - l.premium) * qty * mult
+                t0_pnl += leg_pnl
+
+            t0_points.append({"spot": round(float(s), 2), "pnl": round(float(t0_pnl), 2)})
+
+        expiry_curve = [{"spot": round(float(p.spot), 2), "pnl": round(float(p.pnl), 2)} for p in exp_payoff.payoff]
+
+        return _ok({
+            "symbol": req.symbol,
+            "spot_price": req.spot_price,
+            "dte": req.dte,
+            "iv": req.iv,
+            "iv_shock": req.iv_shock,
+            "target_dte": req.target_dte,
+            "max_profit": exp_payoff.max_profit if exp_payoff.max_profit != float("inf") else "Unlimited",
+            "max_loss": exp_payoff.max_loss if exp_payoff.max_loss != float("-inf") else "Unlimited",
+            "breakevens": [round(b, 2) for b in exp_payoff.breakevens],
+            "expiry_payoff": expiry_curve,
+            "target_payoff": t0_points,
+            "greeks": {
+                "delta": round(net_delta, 2),
+                "gamma": round(net_gamma, 4),
+                "theta": round(net_theta, 2),
+                "vega": round(net_vega, 2),
+            },
+        })
+    except Exception as e:
+        raise _err(str(e))
+
+
+@router.post("/sector_heatmap")
+async def skill_sector_heatmap():
+    """Live Sector performance & breadth across NSE indices."""
+    try:
+        from market.indices import INDEX_INSTRUMENTS, get_index
+
+        sectors = []
+        for code, inst in INDEX_INSTRUMENTS.items():
+            if code in ("NIFTY50", "VIX", "SENSEX", "MIDCAP"):
+                continue
+            try:
+                snap = get_index(code)
+                sectors.append({
+                    "code": code,
+                    "name": snap.name,
+                    "ltp": snap.ltp,
+                    "change": snap.change,
+                    "change_pct": round(snap.change_pct, 2),
+                })
+            except Exception:
+                pass
+
+        sectors.sort(key=lambda s: s["change_pct"], reverse=True)
+        return _ok({
+            "sectors": sectors,
+            "top_gainer": sectors[0] if sectors else None,
+            "top_loser": sectors[-1] if sectors else None,
+        })
+    except Exception as e:
+        raise _err(str(e))
+
+
+@router.post("/flows_history")
+async def skill_flows_history(req: FlowsHistoryRequest):
+    """Historical FII / DII net cash flows + trends."""
+    try:
+        from market.sentiment import get_fii_dii_data
+
+        data = get_fii_dii_data(days=req.days)
+        records = [
+            {
+                "date": d.date,
+                "fii_buy": round(d.fii_buy, 2),
+                "fii_sell": round(d.fii_sell, 2),
+                "fii_net": round(d.fii_net, 2),
+                "dii_buy": round(d.dii_buy, 2),
+                "dii_sell": round(d.dii_sell, 2),
+                "dii_net": round(d.dii_net, 2),
+                "verdict": d.verdict,
+            }
+            for d in data
+        ]
+        return _ok({"history": records})
     except Exception as e:
         raise _err(str(e))
 
@@ -278,6 +564,39 @@ async def skill_analyze(req: AnalyzeRequest):
     NOTE: Involves multiple LLM calls. Expect 30–90 seconds.
     """
     try:
+        from engine.analysis_cache import analysis_cache
+
+        sym = req.symbol.upper().strip()
+        exch = req.exchange.upper().strip()
+
+        # Check cache immediately if not forcing fresh run (0 tokens, <1ms)
+        if not req.force:
+            cached = analysis_cache.get_analysis(sym, exch, req.channel)
+            if cached:
+                return {
+                    "status": "ok",
+                    "data": {
+                        "symbol": sym,
+                        "exchange": exch,
+                        "channel": req.channel,
+                        "report": cached["report"],
+                        "trade_plans": cached["trade_plans"],
+                        "cached": True,
+                        "age_seconds": cached["age_seconds"],
+                        "tokens_saved": 4500,
+                    },
+                }
+
+        # Check spot price for fresh run
+        spot = None
+        try:
+            from market.quotes import get_quote
+            q = get_quote([f"{exch}:{sym}"])
+            if q:
+                spot = list(q.values())[0].last_price
+        except Exception:
+            pass
+
         from agent.tools import build_registry
         from agent.core import get_provider
         from agent.multi_agent import MultiAgentAnalyzer
@@ -291,16 +610,33 @@ async def skill_analyze(req: AnalyzeRequest):
         channel_hint = get_channel_hint(req.channel)
         analyzer.user_hints.put(channel_hint)
 
-        report = analyzer.analyze(req.symbol.upper(), req.exchange.upper())
+        report = analyzer.analyze(sym, exch)
+        trade_plans = _serialise(getattr(analyzer, "last_trade_plans", {}))
+
+        # Save to persistent cache with 15-minute TTL
+        try:
+            analysis_cache.save_analysis(
+                symbol=sym,
+                exchange=exch,
+                channel=req.channel,
+                spot_price=spot or 0.0,
+                report=report,
+                trade_plans=trade_plans,
+                analyst_signals=_serialise(getattr(analyzer, "last_signals", [])),
+                ttl_minutes=15,
+            )
+        except Exception:
+            pass
 
         return {
             "status": "ok",
             "data": {
-                "symbol": req.symbol.upper(),
-                "exchange": req.exchange.upper(),
+                "symbol": sym,
+                "exchange": exch,
                 "channel": req.channel,
                 "report": report,
-                "trade_plans": _serialise(getattr(analyzer, "last_trade_plans", {})),
+                "trade_plans": trade_plans,
+                "cached": False,
             },
         }
     except Exception as e:
@@ -324,23 +660,26 @@ async def skill_analyze_ping():
 
 
 @router.get("/analyze/stream")
-async def skill_analyze_stream(symbol: str, exchange: str = "NSE"):
+async def skill_analyze_stream(symbol: str, exchange: str = "NSE", force: bool = False):
     """
-    SSE stream of multi-agent analysis progress.
+    SSE stream of multi-agent analysis progress with smart caching.
 
     Events (text/event-stream):
       {"type":"started","symbol":"...","exchange":"...","stream_id":"..."}
+      {"type":"cached","message":"...","age_seconds":120,"tokens_saved":4500}
       {"type":"analyst","name":"...","verdict":"...","confidence":70,"score":0.6,"error":null}
       {"type":"phase","phase":"debate"}
       {"type":"hint_ack","hint":"..."}
       {"type":"hint_applied","hint_text":"..."}
       {"type":"phase","phase":"synthesis"}
-      {"type":"done","symbol":"...","exchange":"...","report":"...","trade_plans":{...}}
+      {"type":"done","symbol":"...","exchange":"...","report":"...","trade_plans":{...},"cached":bool}
       {"type":"error","message":"..."}
     """
     loop = asyncio.get_running_loop()
     queue: asyncio.Queue = asyncio.Queue()
-    stream_id = f"{symbol.upper()}_{exchange.upper()}_{uuid4().hex[:8]}"
+    sym = symbol.upper().strip()
+    exch = exchange.upper().strip()
+    stream_id = f"{sym}_{exch}_{uuid4().hex[:8]}"
 
     def _cb(event: dict):
         asyncio.run_coroutine_threadsafe(queue.put(event), loop)
@@ -349,9 +688,39 @@ async def skill_analyze_stream(symbol: str, exchange: str = "NSE"):
         """Runs entirely in a background thread — no event loop blocking."""
         try:
             import os as _os
+            from engine.analysis_cache import analysis_cache
+            from market.quotes import get_quote
 
             # Suppress interactive stdin prompts: if provider setup needs stdin, fail fast.
             _os.environ.setdefault("_CLI_BATCH_MODE", "1")
+
+            # Check cache immediately if not forcing refresh (0 tokens, <1ms)
+            if not force:
+                cached = analysis_cache.get_analysis(sym, exch, "api")
+                if cached:
+                    _cb({
+                        "type": "cached",
+                        "message": f"⚡ Instant cache hit ({cached['age_seconds']}s old | 0 AI tokens used)",
+                        "age_seconds": cached["age_seconds"],
+                        "tokens_saved": 4500,
+                    })
+                    _cb({
+                        "type": "done",
+                        "symbol": sym,
+                        "exchange": exch,
+                        "report": cached["report"],
+                        "trade_plans": cached["trade_plans"],
+                        "cached": True,
+                    })
+                    return
+
+            spot = None
+            try:
+                q = get_quote([f"{exch}:{sym}"])
+                if q:
+                    spot = list(q.values())[0].last_price
+            except Exception:
+                pass
 
             from agent.tools import build_registry
             from agent.core import get_provider
@@ -364,14 +733,32 @@ async def skill_analyze_stream(symbol: str, exchange: str = "NSE"):
             # Register for mid-stream context injection (#113)
             _active_streams[stream_id] = analyzer
 
-            report = analyzer.analyze(symbol.upper(), exchange.upper())
+            report = analyzer.analyze(sym, exch)
+            trade_plans = _serialise(getattr(analyzer, "last_trade_plans", {}))
+
+            # Save to persistent analysis cache
+            try:
+                analysis_cache.save_analysis(
+                    symbol=sym,
+                    exchange=exch,
+                    channel="api",
+                    spot_price=spot or 0.0,
+                    report=report,
+                    trade_plans=trade_plans,
+                    analyst_signals=_serialise(getattr(analyzer, "last_signals", [])),
+                    ttl_minutes=15,
+                )
+            except Exception:
+                pass
+
             _cb(
                 {
                     "type": "done",
-                    "symbol": symbol.upper(),
-                    "exchange": exchange.upper(),
+                    "symbol": sym,
+                    "exchange": exch,
                     "report": report,
-                    "trade_plans": _serialise(getattr(analyzer, "last_trade_plans", {})),
+                    "trade_plans": trade_plans,
+                    "cached": False,
                 }
             )
         except Exception as exc:
@@ -382,7 +769,7 @@ async def skill_analyze_stream(symbol: str, exchange: str = "NSE"):
 
     async def _generator():
         # Immediately confirm the stream is open (before any LLM work begins)
-        yield f"data: {json.dumps({'type': 'started', 'symbol': symbol.upper(), 'exchange': exchange.upper(), 'stream_id': stream_id})}\n\n"
+        yield f"data: {json.dumps({'type': 'started', 'symbol': sym, 'exchange': exch, 'stream_id': stream_id})}\n\n"
         # Fire off analysis in a background thread — does NOT block the event loop
         asyncio.ensure_future(loop.run_in_executor(None, _run))
         while True:

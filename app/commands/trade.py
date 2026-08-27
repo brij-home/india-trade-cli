@@ -138,7 +138,7 @@ def run(symbol: str | None = None, view: str | None = None) -> None:
             "[yellow]  ⚠  Stop-loss is >10% away — very wide. Consider tighter risk management.[/yellow]"
         )
 
-    # ── Step 7: Final confirmation ─────────────────────────────
+    # ── Step 7: Final Double Confirmation ─────────────────────
     mode = os.environ.get("TRADING_MODE", "PAPER")
     mode_badge = "[green]PAPER[/green]" if mode == "PAPER" else "[bold red]LIVE[/bold red]"
 
@@ -150,9 +150,19 @@ def run(symbol: str | None = None, view: str | None = None) -> None:
     )
     console.print(f"  Stop-loss: ₹{sl_price:,.2f}")
 
-    if not Confirm.ask("\n  [bold]Confirm and place order?[/bold]", default=False):
+    if not Confirm.ask("\n  [bold]Step 1: Review trade parameters and proceed?[/bold]", default=False):
         console.print("[dim]Trade cancelled.[/dim]")
         return
+
+    if mode == "LIVE":
+        console.print(
+            "\n[bold red]⚠ REAL MONEY EXECUTION (Step 2 of 2):[/bold red]\n"
+            "Type [bold green]CONFIRM[/bold green] to transmit live order(s) to your broker:"
+        )
+        double_confirm = Prompt.ask("  Double Confirmation", default="CANCEL")
+        if double_confirm.strip().upper() != "CONFIRM":
+            console.print("[dim]Live trade cancelled: Confirmation did not match 'CONFIRM'.[/dim]")
+            return
 
     # ── Step 8: Place order(s) ────────────────────────────────
     broker = get_broker()

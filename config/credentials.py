@@ -56,6 +56,12 @@ KNOWN_CREDENTIALS: list[tuple[str, str, bool]] = [
     # ── Fyers ────────────────────────────────────────────────
     ("FYERS_APP_ID", "Fyers App ID", False),
     ("FYERS_SECRET_KEY", "Fyers Secret Key", True),
+    # ── Stoxkart (SMC) ───────────────────────────────────────
+    ("STOXKART_API_KEY", "Stoxkart API Key", False),
+    ("STOXKART_API_SECRET", "Stoxkart API Secret", True),
+    ("STOXKART_CLIENT_CODE", "Stoxkart Client Code (Login ID)", False),
+    ("STOXKART_PASSWORD", "Stoxkart Trading Password", True),
+    ("STOXKART_TOTP_SECRET", "Stoxkart TOTP Secret (Base32)", True),
     # ── AI Provider selection ─────────────────────────────────
     ("AI_PROVIDER", "AI Provider (anthropic / claude_subscription / openai / gemini / …)", False),
     # ── AI API Keys ──────────────────────────────────────────

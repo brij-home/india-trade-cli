@@ -37,11 +37,21 @@ NSE_FIIDII_URL = "https://www.nseindia.com/api/fiidiiTradeReact"
 
 def get_fii_dii_data(days: int = 5) -> list[FIIDIIData]:
     """
-    FII / DII buy-sell activity from NSE (last N trading days).
+    FII / DII buy-sell activity from NSE (last N trading days) with persistent caching.
 
     NSE API returns a flat list with separate entries for FII and DII
     per date. We group them into one record per date.
     """
+    cache_key = f"fii_dii_data_{days}"
+    try:
+        from engine.analysis_cache import analysis_cache
+
+        cached = analysis_cache.get_macro(cache_key)
+        if cached and isinstance(cached, list):
+            return [FIIDIIData(**item) for item in cached]
+    except Exception:
+        pass
+
     try:
         headers = {
             "User-Agent": "Mozilla/5.0",
@@ -106,10 +116,49 @@ def get_fii_dii_data(days: int = 5) -> list[FIIDIIData]:
                     verdict=verdict,
                 )
             )
+
+        # Save to persistent cache (30-min TTL)
+        try:
+            from engine.analysis_cache import analysis_cache
+
+            analysis_cache.save_macro(
+                cache_key,
+                [
+                    {
+                        "date": d.date,
+                        "fii_buy": d.fii_buy,
+                        "fii_sell": d.fii_sell,
+                        "fii_net": d.fii_net,
+                        "dii_buy": d.dii_buy,
+                        "dii_sell": d.dii_sell,
+                        "dii_net": d.dii_net,
+                        "verdict": d.verdict,
+                    }
+                    for d in result
+                ],
+                ttl_minutes=30,
+            )
+        except Exception:
+            pass
+
         return result
 
     except Exception:
-        return []  # No fake data — return empty list when NSE API fails
+        # Fallback to expired cache if available before returning empty list
+        try:
+            from engine.analysis_cache import analysis_cache
+
+            with analysis_cache._get_conn() as conn:
+                row = conn.execute(
+                    "SELECT data_json FROM macro_cache WHERE cache_key = ?", (cache_key,)
+                ).fetchone()
+                if row:
+                    import json
+
+                    return [FIIDIIData(**item) for item in json.loads(row["data_json"])]
+        except Exception:
+            pass
+        return []
 
 
 # ── News Sentiment ────────────────────────────────────────────
