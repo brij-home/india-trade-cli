@@ -35,8 +35,20 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+from pathlib import Path
 import threading
 from typing import Optional
+
+from dotenv import load_dotenv
+
+load_dotenv(Path(__file__).parent.parent / ".env")
+
+try:
+    from config.credentials import load_all as _load_keychain
+
+    _load_keychain()
+except Exception:
+    pass
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

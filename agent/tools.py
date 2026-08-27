@@ -93,7 +93,8 @@ class ToolRegistry:
 
     # ── Schemas ───────────────────────────────────────────────
 
-    def anthropic_schema(self) -> list[dict]:
+    def anthropic_schema(self, include: list[str] | set[str] | None = None) -> list[dict]:
+        inc = set(include) if include is not None else None
         return [
             {
                 "name": name,
@@ -101,10 +102,11 @@ class ToolRegistry:
                 "input_schema": t["parameters"],
             }
             for name, t in self._tools.items()
-            if t.get("permission") != "deny"
+            if t.get("permission") != "deny" and (inc is None or name in inc)
         ]
 
-    def openai_schema(self) -> list[dict]:
+    def openai_schema(self, include: list[str] | set[str] | None = None) -> list[dict]:
+        inc = set(include) if include is not None else None
         return [
             {
                 "type": "function",
@@ -115,7 +117,7 @@ class ToolRegistry:
                 },
             }
             for name, t in self._tools.items()
-            if t.get("permission") != "deny"
+            if t.get("permission") != "deny" and (inc is None or name in inc)
         ]
 
     def execute(self, name: str, arguments: dict) -> Any:
@@ -629,8 +631,8 @@ def build_registry() -> ToolRegistry:
                 },
                 "provider": {
                     "type": "string",
-                    "enum": ["exa", "tavily", "duckduckgo", ""],
-                    "default": "",
+                    "enum": ["exa", "tavily", "duckduckgo", "auto"],
+                    "default": "auto",
                     "description": "Force a specific provider. Leave blank for auto-selection.",
                 },
             },

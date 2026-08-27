@@ -155,6 +155,19 @@ def load_all() -> None:
         console.print(f"[dim]🔑 Loaded {loaded} credential(s) from OS keychain.[/dim]")
 
 
+
+def _is_placeholder(val: str) -> bool:
+    if not val:
+        return True
+    val_lower = val.strip().lower()
+    return (
+        val_lower.startswith("your_")
+        or val_lower.endswith("_here")
+        or "your_" in val_lower
+        or "xxxx-100" in val_lower
+        or "sk-or-v1-" in val_lower
+    )
+
 def get_credential(
     key: str,
     label: Optional[str] = None,
@@ -179,24 +192,26 @@ def get_credential(
 
     # 1. Keychain
     value = _kr_get(key)
-    if value:
+    if value and not _is_placeholder(value):
         os.environ[key] = value  # inject so rest of code sees it via os.environ
         return value
 
     # 2. Environment variable / .env (already loaded by dotenv)
     value = os.environ.get(key, "").strip()
-    if value:
+    if value and not _is_placeholder(value):
         return value
+
+    # If not required, never prompt interactively
+    if not required:
+        return ""
 
     # 3. Interactive prompt (skip in batch mode — e.g. CLI provider tool loop)
     if os.environ.get("_CLI_BATCH_MODE"):
-        if required:
-            raise RuntimeError(
-                f"Credential '{display}' is not configured.\n"
-                f"Run: credentials setup   (interactive wizard)\n"
-                f"  or: credentials set {key}"
-            )
-        return ""
+        raise RuntimeError(
+            f"Credential '{display}' is not configured.\n"
+            f"Run: credentials setup   (interactive wizard)\n"
+            f"  or: credentials set {key}"
+        )
 
     console.print(f"\n[yellow]⚠  Missing credential:[/yellow] [bold]{display}[/bold]")
 

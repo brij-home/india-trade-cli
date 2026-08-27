@@ -826,6 +826,7 @@ class NewsMacroAnalyst(BaseAnalyst):
             response = self._llm.chat(
                 messages=[{"role": "user", "content": prompt}],
                 stream=False,
+                enable_tools=False,
             )
             return self._parse_sentiment_response(response)
         except Exception as e:
@@ -1765,6 +1766,7 @@ class MultiAgentAnalyzer:
         bull_argument = self.llm.chat(
             messages=[{"role": "user", "content": bull_prompt}],
             stream=self.verbose,
+            tool_names={"technical_analyse", "fundamental_analyse", "get_quote", "get_stock_news", "score_fundamentals"},
         )
         if self.progress_callback:
             self.progress_callback(
@@ -1789,6 +1791,7 @@ class MultiAgentAnalyzer:
         bear_argument = self.llm.chat(
             messages=[{"role": "user", "content": bear_prompt}],
             stream=self.verbose,
+            tool_names={"technical_analyse", "fundamental_analyse", "get_quote", "get_stock_news", "score_fundamentals"},
         )
         if self.progress_callback:
             self.progress_callback(
@@ -1817,6 +1820,7 @@ class MultiAgentAnalyzer:
         bull_rebuttal = self.llm.chat(
             messages=[{"role": "user", "content": bull_rebuttal_prompt}],
             stream=self.verbose,
+            enable_tools=False,
         )
         if self.progress_callback:
             self.progress_callback(
@@ -1841,6 +1845,7 @@ class MultiAgentAnalyzer:
         bear_rebuttal = self.llm.chat(
             messages=[{"role": "user", "content": bear_rebuttal_prompt}],
             stream=self.verbose,
+            enable_tools=False,
         )
         if self.progress_callback:
             self.progress_callback(
@@ -1867,6 +1872,7 @@ class MultiAgentAnalyzer:
         facilitator_summary = self.llm.chat(
             messages=[{"role": "user", "content": facilitator_prompt}],
             stream=self.verbose,
+            enable_tools=False,
         )
         if self.progress_callback:
             self.progress_callback(
@@ -1953,6 +1959,7 @@ class MultiAgentAnalyzer:
                 {"role": "user", "content": AGGRESSIVE_DEBATER_PROMPT.format(**shared_context)}
             ],
             stream=self.verbose,
+            enable_tools=False,
         )
 
         # Conservative debater
@@ -1965,6 +1972,7 @@ class MultiAgentAnalyzer:
                 {"role": "user", "content": CONSERVATIVE_DEBATER_PROMPT.format(**shared_context)}
             ],
             stream=self.verbose,
+            enable_tools=False,
         )
 
         # Neutral debater
@@ -1982,6 +1990,7 @@ class MultiAgentAnalyzer:
                 }
             ],
             stream=self.verbose,
+            enable_tools=False,
         )
 
         # Extract consensus sizing from neutral view (first line with % or ₹)
@@ -2125,6 +2134,7 @@ class MultiAgentAnalyzer:
         synthesis = self.llm.chat(
             messages=[{"role": "user", "content": synthesis_prompt}],
             stream=self.verbose,
+            enable_tools=False,
         )
         if self.progress_callback:
             self.progress_callback({"type": "synthesis_text", "text": synthesis})

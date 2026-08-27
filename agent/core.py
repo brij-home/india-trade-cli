@@ -80,19 +80,27 @@ MAX_TOOL_ROUNDS = 10  # agentic loop safety cap
 
 PROVIDER_ANTHROPIC = "anthropic"
 PROVIDER_OPENAI = "openai"
+PROVIDER_NVIDIA = "nvidia"
+PROVIDER_GROQ = "groq"
+PROVIDER_DEEPSEEK = "deepseek"
+PROVIDER_OPENROUTER = "openrouter"
 PROVIDER_GEMINI = "gemini"
 PROVIDER_CLAUDE_CLI = "claude_subscription"
 PROVIDER_OPENAI_SUB = "openai_subscription"
 PROVIDER_GEMINI_SUB = "gemini_subscription"
 PROVIDER_OLLAMA = "ollama"
 
-GEMINI_DEFAULT_MODEL = "gemini-2.5-pro"
+GEMINI_DEFAULT_MODEL = "gemini-3.5-flash"
 OLLAMA_DEFAULT_MODEL = "llama3.1"
 
 ALL_PROVIDERS = [
     PROVIDER_ANTHROPIC,
     PROVIDER_OPENAI,
     PROVIDER_GEMINI,
+    PROVIDER_NVIDIA,
+    PROVIDER_GROQ,
+    PROVIDER_DEEPSEEK,
+    PROVIDER_OPENROUTER,
     PROVIDER_CLAUDE_CLI,
     PROVIDER_OPENAI_SUB,
     PROVIDER_GEMINI_SUB,
@@ -112,6 +120,44 @@ def _assistant_msg(content: str) -> dict:
 
 
 # ── Abstract provider ──────────────────────────────────────────
+
+
+
+def _retry_api_call(fn, *args, max_retries: int = 5, initial_delay: float = 1.5, **kwargs):
+    """Execute an API function with adaptive exponential backoff on transient errors (503, 429, timeout, rate limits)."""
+    import re
+    import time
+
+    delay = initial_delay
+    last_err = None
+    for attempt in range(max_retries):
+        try:
+            return fn(*args, **kwargs)
+        except Exception as e:
+            last_err = e
+            err_str = str(e).lower()
+            is_transient = any(
+                term in err_str
+                for term in (
+                    "503", "429", "resource_exhausted", "unavailable", "timeout",
+                    "high demand", "rate limit", "overloaded", "connection reset",
+                    "econnreset", "502", "504", "bad gateway", "service unavailable",
+                    "temporarily unavailable", "quota exceeded"
+                )
+            )
+            if is_transient and attempt < max_retries - 1:
+                # Parse explicit retry delay if returned by Gemini / provider error message
+                retry_match = re.search(r"retry in\s+([\d\.]+)\s*s", err_str) or re.search(
+                    r"retrydelay['\":\s]+(\d+)", err_str
+                )
+                if retry_match:
+                    wait_time = float(retry_match.group(1)) + 0.5
+                else:
+                    wait_time = delay
+                time.sleep(max(wait_time, 1.5))
+                delay = max(delay * 2.0, 3.0)
+                continue
+            raise last_err
 
 
 class LLMProvider(ABC):
@@ -150,7 +196,8 @@ class AnthropicProvider(LLMProvider):
     """
 
     def __init__(self, model: str, registry: ToolRegistry, system_prompt: str) -> None:
-        super().__init__(model, registry, system_prompt)
+        resolved = model or os.environ.get("GEMINI_MODEL") or os.environ.get("AI_MODEL") or GEMINI_DEFAULT_MODEL
+        super().__init__(resolved, registry, system_prompt)
         try:
             import anthropic as _sdk
 
@@ -213,14 +260,18 @@ class AnthropicProvider(LLMProvider):
                 final = text
                 break
         else:
-            final = "[Agent hit tool-round limit]"
+            try:
+                final, _ = self._call_round(oai, tools=None)
+            except Exception:
+                final = "[Agent concluded analysis based on gathered tool data]"
 
         return final
 
     # ── Private ───────────────────────────────────────────────
 
     def _call_round(self, messages, tools):
-        r = self._client.messages.create(
+        r = _retry_api_call(
+            self._client.messages.create,
             model=self.model,
             max_tokens=4096,
             system=self.system_prompt,
@@ -310,8 +361,8 @@ class OpenAIProvider(LLMProvider):
         base_url: str | None = None,
         api_key: str | None = None,
     ) -> None:
-        # Resolve model: env var wins over passed-in default (allows runtime override)
-        resolved_model = os.environ.get("OPENAI_MODEL") or model
+        # Resolve model: explicit arg > env var > default
+        resolved_model = model or os.environ.get("OPENAI_MODEL") or OPENAI_DEFAULT_MODEL
         super().__init__(resolved_model, registry, system_prompt)
         try:
             import openai as _sdk
@@ -322,7 +373,6 @@ class OpenAIProvider(LLMProvider):
             resolved_base = base_url or os.environ.get("OPENAI_BASE_URL")
 
             # Resolve API key: explicit arg > env var > credential store
-            # Ollama and some local servers don't need a real key
             resolved_key = api_key or os.environ.get("OPENAI_API_KEY")
             if not resolved_key:
                 if resolved_base:
@@ -350,14 +400,26 @@ class OpenAIProvider(LLMProvider):
             return f"{host} / {self.model}"
         return f"OpenAI / {self.model}"
 
-    def chat(self, messages: list[dict], stream: bool = True) -> str:
+    def chat(
+        self,
+        messages: list[dict],
+        stream: bool = True,
+        enable_tools: bool = True,
+        tool_names: list[str] | set[str] | None = None,
+    ) -> str:
         # OpenAI takes system message inline
         oai = [{"role": "system", "content": self.system_prompt}] + list(messages)
-        tools = self.registry.openai_schema()
+        tools = self.registry.openai_schema(include=tool_names) if enable_tools else None
         final = ""
 
         for _ in range(MAX_TOOL_ROUNDS):
-            text, tcs = self._stream_round(oai, tools) if stream else self._call_round(oai, tools)
+            if stream:
+                try:
+                    text, tcs = self._stream_round(oai, tools)
+                except Exception:
+                    text, tcs = self._call_round(oai, tools)
+            else:
+                text, tcs = self._call_round(oai, tools)
 
             if tcs:
                 oai.append(
@@ -387,32 +449,165 @@ class OpenAIProvider(LLMProvider):
                 final = text
                 break
         else:
-            final = "[Agent hit tool-round limit]"
+            try:
+                final, _ = self._call_round(oai, tools=None)
+            except Exception:
+                final = "[Agent concluded analysis based on gathered tool data]"
 
         return final
 
     # ── Private ───────────────────────────────────────────────
 
+    def _flatten_messages(self, messages: list[dict]) -> list[dict]:
+        flat = []
+        for m in messages:
+            if m.get("role") == "tool":
+                flat.append({"role": "user", "content": f"[Tool Result]: {m.get('content', '')}"})
+            elif m.get("role") == "assistant" and m.get("tool_calls"):
+                tc_names = [tc["function"]["name"] for tc in m["tool_calls"]]
+                flat.append({"role": "assistant", "content": m.get("content") or f"I analyzed tool outputs for: {', '.join(tc_names)}"})
+            else:
+                flat.append(m)
+        return flat
+
+    def _get_model_candidates(self) -> list[str]:
+        return [m.strip() for m in self.model.split(",") if m.strip()] or [self.model]
+
     def _call_round(self, messages, tools):
-        r = self._client.chat.completions.create(model=self.model, messages=messages, tools=tools)
-        msg = r.choices[0].message
-        tcs = []
-        if msg.tool_calls:
-            for tc in msg.tool_calls:
-                try:
-                    args = json.loads(tc.function.arguments)
-                except json.JSONDecodeError:
-                    args = {}
-                tcs.append({"id": tc.id, "name": tc.function.name, "input": args})
-        return msg.content or "", tcs
+        candidates = self._get_model_candidates()
+        is_openrouter = "openrouter.ai" in (self._base_url or "").lower()
+        last_exc = None
+
+        # Iterate in chunks of 3 for OpenRouter, or 1 for others
+        chunk_size = 3 if is_openrouter else 1
+        for i in range(0, len(candidates), chunk_size):
+            chunk = candidates[i:i + chunk_size]
+            current_model = chunk[0]
+            extra_body = {"models": chunk} if (is_openrouter and len(chunk) > 1) else None
+
+            try:
+                kwargs = {"model": current_model, "messages": messages, "tools": tools if tools else None}
+                if extra_body:
+                    kwargs["extra_body"] = extra_body
+                r = _retry_api_call(self._client.chat.completions.create, **kwargs)
+                msg = r.choices[0].message
+                tcs = []
+                if msg.tool_calls:
+                    for tc in msg.tool_calls:
+                        try:
+                            args = json.loads(tc.function.arguments)
+                        except json.JSONDecodeError:
+                            args = {}
+                        tcs.append({"id": tc.id, "name": tc.function.name, "input": args})
+                return msg.content or "", tcs
+            except Exception as e:
+                err_str = str(e).lower()
+                if any(c in err_str for c in ("single tool-call", "tool_call", "parallel tool", "tools at once", "400", "404", "413", "not supported", "tokens per minute", "tpm", "rate_limit_exceeded", "request too large")):
+                    try:
+                        flat = self._flatten_messages(messages)
+                        kwargs = {"model": current_model, "messages": flat}
+                        if extra_body:
+                            kwargs["extra_body"] = extra_body
+                        r = _retry_api_call(self._client.chat.completions.create, **kwargs)
+                        msg = r.choices[0].message
+                        tcs = []
+                        if msg.tool_calls:
+                            for tc in msg.tool_calls:
+                                try:
+                                    args = json.loads(tc.function.arguments)
+                                except json.JSONDecodeError:
+                                    args = {}
+                                tcs.append({"id": tc.id, "name": tc.function.name, "input": args})
+                        return msg.content or "", tcs
+                    except Exception as e2:
+                        last_exc = e2
+                        continue
+                last_exc = e
+                continue
+
+        if last_exc:
+            raise last_exc
+        return "", []
 
     def _stream_round(self, messages, tools):
-        text = ""
-        tc_acc: dict[int, dict] = {}
+        candidates = self._get_model_candidates()
+        is_openrouter = "openrouter.ai" in (self._base_url or "").lower()
+        last_exc = None
 
-        stream = self._client.chat.completions.create(
-            model=self.model, messages=messages, tools=tools, stream=True
-        )
+        chunk_size = 3 if is_openrouter else 1
+        for i in range(0, len(candidates), chunk_size):
+            chunk = candidates[i:i + chunk_size]
+            current_model = chunk[0]
+            extra_body = {"models": chunk} if (is_openrouter and len(chunk) > 1) else None
+
+            try:
+                kwargs = {"model": current_model, "messages": messages, "tools": tools if tools else None, "stream": True}
+                if extra_body:
+                    kwargs["extra_body"] = extra_body
+                stream = _retry_api_call(self._client.chat.completions.create, **kwargs)
+                text = ""
+                tc_acc: dict[int, dict] = {}
+                for chunk_item in stream:
+                    if not chunk_item.choices:
+                        continue
+                    delta = chunk_item.choices[0].delta
+                    if delta.content:
+                        text += delta.content
+                        console.print(delta.content, end="", markup=False, highlight=False)
+                    if delta.tool_calls:
+                        for d in delta.tool_calls:
+                            idx = d.index
+                            if idx not in tc_acc:
+                                tc_acc[idx] = {"id": "", "name": "", "args": ""}
+                            if d.id:
+                                tc_acc[idx]["id"] += d.id
+                            if d.function:
+                                if d.function.name:
+                                    tc_acc[idx]["name"] += d.function.name
+                                if d.function.arguments:
+                                    tc_acc[idx]["args"] += d.function.arguments
+                if text:
+                    console.print()
+
+                tcs = []
+                for idx in sorted(tc_acc):
+                    tc = tc_acc[idx]
+                    try:
+                        args = json.loads(tc["args"]) if tc["args"] else {}
+                    except json.JSONDecodeError:
+                        args = {}
+                    tcs.append({"id": tc["id"], "name": tc["name"], "input": args})
+                return text, tcs
+            except Exception as e:
+                err_str = str(e).lower()
+                if any(c in err_str for c in ("single tool-call", "tool_call", "parallel tool", "tools at once", "400", "404", "413", "not supported", "tokens per minute", "tpm", "rate_limit_exceeded", "request too large")):
+                    try:
+                        flat = self._flatten_messages(messages)
+                        kwargs = {"model": current_model, "messages": flat, "stream": True}
+                        if extra_body:
+                            kwargs["extra_body"] = extra_body
+                        stream = _retry_api_call(self._client.chat.completions.create, **kwargs)
+                        text = ""
+                        tc_acc = {}
+                        for chunk_item in stream:
+                            if not chunk_item.choices:
+                                continue
+                            delta = chunk_item.choices[0].delta
+                            if delta.content:
+                                text += delta.content
+                                console.print(delta.content, end="", markup=False, highlight=False)
+                        if text:
+                            console.print()
+                        return text, []
+                    except Exception as e2:
+                        last_exc = e2
+                        continue
+                last_exc = e
+                continue
+
+        if last_exc:
+            raise last_exc
+        return "", []
         for chunk in stream:
             if not chunk.choices:
                 continue
@@ -473,7 +668,8 @@ class ClaudeCLIProvider(LLMProvider):
     """
 
     def __init__(self, model: str, registry: ToolRegistry, system_prompt: str) -> None:
-        super().__init__(model, registry, system_prompt)
+        resolved = model or os.environ.get("GEMINI_MODEL") or os.environ.get("AI_MODEL") or GEMINI_DEFAULT_MODEL
+        super().__init__(resolved, registry, system_prompt)
         self._cli = self._find_claude_cli()
 
     @property
@@ -1355,16 +1551,20 @@ class GeminiProvider(LLMProvider):
     """
 
     def __init__(self, model: str, registry: ToolRegistry, system_prompt: str) -> None:
-        super().__init__(model, registry, system_prompt)
+        resolved = model or os.environ.get("GEMINI_MODEL") or os.environ.get("AI_MODEL") or GEMINI_DEFAULT_MODEL
+        super().__init__(resolved, registry, system_prompt)
         try:
             from google import genai
             from google.genai import types as genai_types
 
             self._genai = genai
             self._genai_types = genai_types
-            api_key = get_credential(
-                "GEMINI_API_KEY", "Google Gemini API Key", secret=True, required=False
-            ) or os.environ.get("GOOGLE_API_KEY", "")
+            api_key = (
+                os.environ.get("GEMINI_API_KEY")
+                or os.environ.get("GOOGLE_API_KEY")
+                or get_credential("GEMINI_API_KEY", "Google Gemini API Key", secret=True, required=False)
+                or ""
+            )
             if not api_key:
                 raise RuntimeError(
                     "GEMINI_API_KEY not set.\n"
@@ -1384,12 +1584,12 @@ class GeminiProvider(LLMProvider):
     def provider_name(self) -> str:
         return f"Google Gemini / {self.model or GEMINI_DEFAULT_MODEL}"
 
-    def _build_gemini_tools(self) -> list:
+    def _build_gemini_tools(self, include: list[str] | set[str] | None = None) -> list:
         """Convert ToolRegistry to Gemini FunctionDeclaration format."""
         try:
             types = self._genai_types
             declarations = []
-            for t in self.registry.anthropic_schema():
+            for t in self.registry.anthropic_schema(include=include):
                 params = t.get("input_schema", {})
                 declarations.append(
                     types.FunctionDeclaration(
@@ -1398,18 +1598,25 @@ class GeminiProvider(LLMProvider):
                         parameters=params,
                     )
                 )
-            return [types.Tool(function_declarations=declarations)]
+            return [types.Tool(function_declarations=declarations)] if declarations else []
         except Exception:
             return []
 
-    def chat(self, messages: list[dict], stream: bool = True) -> str:
+    def chat(
+        self,
+        messages: list[dict],
+        stream: bool = True,
+        enable_tools: bool = True,
+        tool_names: list[str] | set[str] | None = None,
+    ) -> str:
         """Agentic loop using Gemini's function calling."""
         types = self._genai_types
 
-        # Build chat config with tools and system instruction
+        # Build chat config with tools (optionally filtered) and system instruction
+        active_tools = self._build_gemini_tools(include=tool_names) if enable_tools else []
         config = types.GenerateContentConfig(
             system_instruction=self.system_prompt,
-            tools=self._tools_schema or None,
+            tools=active_tools or None,
             automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
         )
 
@@ -1429,13 +1636,35 @@ class GeminiProvider(LLMProvider):
 
         for _ in range(MAX_TOOL_ROUNDS):
             try:
-                response = chat_session.send_message(current_input)
+                response = _retry_api_call(chat_session.send_message, current_input)
             except Exception as e:
-                return f"[Gemini error: {e}]"
+                err_str = str(e).lower()
+                # If specific model hit hard daily quota, attempt fallback to standard flash models
+                if "resource_exhausted" in err_str or "quota exceeded" in err_str:
+                    fallback_models = [m for m in ["gemini-3.5-flash", "gemini-3.5-flash-lite", "gemini-flash-latest", "gemini-3.7-flash"] if m != (self.model or GEMINI_DEFAULT_MODEL)]
+                    for fb_model in fallback_models:
+                        try:
+                            fb_session = self._client.chats.create(
+                                model=fb_model,
+                                config=config,
+                                history=gemini_history or None,
+                            )
+                            response = _retry_api_call(fb_session.send_message, current_input)
+                            chat_session = fb_session  # switch active session
+                            break
+                        except Exception:
+                            continue
+                    else:
+                        return f"[Gemini error: {e}]"
+                else:
+                    return f"[Gemini error: {e}]"
 
             # Check for function calls
             tool_calls = []
             text_parts = []
+
+            if not response.candidates or not response.candidates[0].content or not response.candidates[0].content.parts:
+                return "[Gemini returned empty response]"
 
             for part in response.candidates[0].content.parts:
                 if part.function_call:
@@ -1517,7 +1746,8 @@ class GeminiVertexProvider(LLMProvider):
     """
 
     def __init__(self, model: str, registry: ToolRegistry, system_prompt: str) -> None:
-        super().__init__(model, registry, system_prompt)
+        resolved = model or os.environ.get("GEMINI_MODEL") or os.environ.get("AI_MODEL") or GEMINI_DEFAULT_MODEL
+        super().__init__(resolved, registry, system_prompt)
         self._project = os.environ.get("GOOGLE_CLOUD_PROJECT", "")
         self._location = os.environ.get("GOOGLE_CLOUD_LOCATION", "us-central1")
 
@@ -1624,6 +1854,35 @@ class GeminiVertexProvider(LLMProvider):
 # ── Provider factory ───────────────────────────────────────────
 
 
+
+def _build_custom_openai_provider(prov_name: str, model: str | None, registry: ToolRegistry, sys_prompt: str) -> LLMProvider | None:
+    """Build OpenAI-compatible providers: NVIDIA, Groq, DeepSeek, OpenRouter, Ollama."""
+    if prov_name == PROVIDER_OLLAMA:
+        base = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434/v1")
+        mdl = model or os.environ.get("OLLAMA_MODEL", OLLAMA_DEFAULT_MODEL)
+        return OpenAIProvider(mdl, registry, sys_prompt, base_url=base, api_key="ollama")
+    if prov_name == PROVIDER_NVIDIA:
+        base = os.environ.get("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1")
+        key = os.environ.get("NVIDIA_API_KEY") or os.environ.get("OPENAI_API_KEY", "")
+        mdl = model or os.environ.get("NVIDIA_MODEL", NVIDIA_DEFAULT_MODEL)
+        return OpenAIProvider(mdl, registry, sys_prompt, base_url=base, api_key=key)
+    if prov_name == PROVIDER_GROQ:
+        base = os.environ.get("GROQ_BASE_URL", "https://api.groq.com/openai/v1")
+        key = os.environ.get("GROQ_API_KEY") or os.environ.get("OPENAI_API_KEY", "")
+        mdl = model or os.environ.get("GROQ_MODEL", GROQ_DEFAULT_MODEL)
+        return OpenAIProvider(mdl, registry, sys_prompt, base_url=base, api_key=key)
+    if prov_name == PROVIDER_DEEPSEEK:
+        base = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1")
+        key = os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("OPENAI_API_KEY", "")
+        mdl = model or os.environ.get("DEEPSEEK_MODEL", DEEPSEEK_DEFAULT_MODEL)
+        return OpenAIProvider(mdl, registry, sys_prompt, base_url=base, api_key=key)
+    if prov_name == PROVIDER_OPENROUTER:
+        base = os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
+        key = os.environ.get("OPENROUTER_API_KEY") or os.environ.get("OPENAI_API_KEY", "")
+        mdl = model or os.environ.get("OPENROUTER_MODEL", OPENROUTER_DEFAULT_MODEL)
+        return OpenAIProvider(mdl, registry, sys_prompt, base_url=base, api_key=key)
+    return None
+
 def get_provider(
     provider: str | None = None,
     model: str | None = None,
@@ -1655,7 +1914,7 @@ def get_provider(
     if chosen == PROVIDER_ANTHROPIC and not _has_anthropic_key():
         chosen = _first_time_provider_setup()
 
-    chosen_model = model or os.environ.get("AI_MODEL", "") or _default_model(chosen)
+    chosen_model = model or _default_model(chosen)
 
     system = build_system_prompt()
 
@@ -1676,11 +1935,10 @@ def get_provider(
     }
 
     def _build_provider(prov_name, model, registry, sys_prompt):
-        """Construct a provider, with special handling for Ollama."""
-        if prov_name == PROVIDER_OLLAMA:
-            base = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434/v1")
-            mdl = model or os.environ.get("OLLAMA_MODEL", OLLAMA_DEFAULT_MODEL)
-            return OpenAIProvider(mdl, registry, sys_prompt, base_url=base, api_key="ollama")
+        """Construct a provider, with special handling for Ollama and NVIDIA."""
+        custom = _build_custom_openai_provider(prov_name, model, registry, sys_prompt)
+        if custom is not None:
+            return custom
         prov_cls = dispatch.get(prov_name, AnthropicProvider)
         return prov_cls(model, registry, sys_prompt)
 
@@ -1914,11 +2172,19 @@ def _auto_detect_provider() -> str:
 def _default_model(provider: str) -> str:
     if provider == PROVIDER_OPENAI:
         return os.environ.get("OPENAI_MODEL", OPENAI_DEFAULT_MODEL)
+    if provider == PROVIDER_NVIDIA:
+        return os.environ.get("NVIDIA_MODEL", NVIDIA_DEFAULT_MODEL)
+    if provider == PROVIDER_GROQ:
+        return os.environ.get("GROQ_MODEL", GROQ_DEFAULT_MODEL)
+    if provider == PROVIDER_DEEPSEEK:
+        return os.environ.get("DEEPSEEK_MODEL", DEEPSEEK_DEFAULT_MODEL)
+    if provider == PROVIDER_OPENROUTER:
+        return os.environ.get("OPENROUTER_MODEL", OPENROUTER_DEFAULT_MODEL)
     if provider in (PROVIDER_GEMINI, PROVIDER_GEMINI_SUB):
-        return GEMINI_DEFAULT_MODEL
+        return os.environ.get("GEMINI_MODEL") or os.environ.get("AI_MODEL") or GEMINI_DEFAULT_MODEL
     if provider == PROVIDER_OLLAMA:
         return os.environ.get("OLLAMA_MODEL", OLLAMA_DEFAULT_MODEL)
-    return ANTHROPIC_DEFAULT_MODEL
+    return os.environ.get("ANTHROPIC_MODEL", ANTHROPIC_DEFAULT_MODEL)
 
 
 # ── Trading Agent ──────────────────────────────────────────────
@@ -2244,25 +2510,18 @@ def get_deep_provider(
     This provider is used for: bull/bear debate, risk debate, synthesis.
     """
     deep_prov = os.environ.get("AI_DEEP_PROVIDER") or os.environ.get("AI_PROVIDER", "")
-    deep_model = os.environ.get("AI_DEEP_MODEL") or os.environ.get("AI_MODEL", "")
-    # Temporarily override env for get_provider call
-    _orig_prov = os.environ.get("AI_PROVIDER")
-    _orig_model = os.environ.get("AI_MODEL")
-    try:
-        if deep_prov:
-            os.environ["AI_PROVIDER"] = deep_prov
-        if deep_model:
-            os.environ["AI_MODEL"] = deep_model
-        return get_provider(registry=registry)
-    finally:
-        if _orig_prov is not None:
-            os.environ["AI_PROVIDER"] = _orig_prov
-        elif "AI_PROVIDER" in os.environ and deep_prov:
-            os.environ.pop("AI_PROVIDER", None)
-        if _orig_model is not None:
-            os.environ["AI_MODEL"] = _orig_model
-        elif "AI_MODEL" in os.environ and deep_model:
-            os.environ.pop("AI_MODEL", None)
+    deep_model = (
+        os.environ.get("AI_DEEP_MODEL")
+        or (os.environ.get("NVIDIA_MODEL") if deep_prov == PROVIDER_NVIDIA else None)
+        or (os.environ.get("GROQ_MODEL") if deep_prov == PROVIDER_GROQ else None)
+        or (os.environ.get("DEEPSEEK_MODEL") if deep_prov == PROVIDER_DEEPSEEK else None)
+        or (os.environ.get("OPENROUTER_MODEL") if deep_prov == PROVIDER_OPENROUTER else None)
+        or (os.environ.get("OPENAI_MODEL") if deep_prov == PROVIDER_OPENAI else None)
+        or (os.environ.get("ANTHROPIC_MODEL") if deep_prov == PROVIDER_ANTHROPIC else None)
+        or (os.environ.get("GEMINI_MODEL") if deep_prov in (PROVIDER_GEMINI, PROVIDER_GEMINI_SUB) else None)
+        or _default_model(deep_prov)
+    )
+    return get_provider(provider=deep_prov, model=deep_model, registry=registry)
 
 
 def get_fast_provider(
@@ -2312,9 +2571,9 @@ def get_fast_provider(
     }
 
     try:
-        if chosen_prov == PROVIDER_OLLAMA:
-            base = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434/v1")
-            return OpenAIProvider(chosen_model, reg, system, base_url=base, api_key="ollama")
+        custom = _build_custom_openai_provider(chosen_prov, chosen_model, reg, system)
+        if custom is not None:
+            return custom
         prov_cls = dispatch.get(chosen_prov, AnthropicProvider)
         return prov_cls(chosen_model, reg, system)
     except Exception:
@@ -2340,9 +2599,9 @@ def build_provider_from_env(registry=None, system_prompt=None) -> "LLMProvider":
         PROVIDER_OLLAMA: None,
     }
 
-    if chosen == PROVIDER_OLLAMA:
-        base = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434/v1")
-        return OpenAIProvider(model, reg, sys, base_url=base, api_key="ollama")
+    custom = _build_custom_openai_provider(chosen, model, reg, sys)
+    if custom is not None:
+        return custom
     prov_cls = dispatch.get(chosen, AnthropicProvider)
     return prov_cls(model, reg, sys)
 
@@ -2385,9 +2644,9 @@ def build_fast_provider_from_env(registry=None) -> "LLMProvider":
         PROVIDER_CLAUDE_CLI: ClaudeCLIProvider,
         PROVIDER_GEMINI_SUB: GeminiVertexProvider,
     }
-    if chosen == PROVIDER_OLLAMA:
-        base = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434/v1")
-        return OpenAIProvider(model, reg, sys, base_url=base, api_key="ollama")
+    custom = _build_custom_openai_provider(chosen, model, reg, sys)
+    if custom is not None:
+        return custom
     prov_cls = dispatch.get(chosen, AnthropicProvider)
     return prov_cls(model, reg, sys)
 

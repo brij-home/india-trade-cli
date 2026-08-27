@@ -67,6 +67,8 @@ COMMANDS = [
     "morning-brief",
     "analyze",
     "quick",
+    "funnel",
+    "smart-funnel",
     "trade",
     "portfolio",
     "paper",
@@ -1143,11 +1145,15 @@ def run_repl(broker: BrokerAPI) -> None:
     history_path = os.path.expanduser(HISTORY_FILE)
     os.makedirs(os.path.dirname(history_path), exist_ok=True)
 
-    session: PromptSession = PromptSession(
-        history=FileHistory(history_path),
-        completer=WordCompleter(COMMANDS, ignore_case=True),
-        style=STYLE,
-    )
+    session = None
+    try:
+        session = PromptSession(
+            history=FileHistory(history_path),
+            completer=WordCompleter(COMMANDS, ignore_case=True),
+            style=STYLE,
+        )
+    except Exception:
+        session = None
 
     # Start background alert poller (daemon thread, checks every 60s)
     from engine.alerts import alert_manager
@@ -1213,12 +1219,20 @@ def run_repl(broker: BrokerAPI) -> None:
 
     while True:
         try:
-            raw = session.prompt(
-                _build_prompt, bottom_toolbar=_build_toolbar, refresh_interval=1.0
-            ).strip()
+            if session is not None:
+                raw = session.prompt(
+                    _build_prompt, bottom_toolbar=_build_toolbar, refresh_interval=1.0
+                ).strip()
+            else:
+                raw = input("trade ❯ ").strip()
         except (KeyboardInterrupt, EOFError):
             console.print("\n[yellow]Use 'quit' to exit.[/yellow]")
             continue
+        except Exception:
+            try:
+                raw = input("trade ❯ ").strip()
+            except (KeyboardInterrupt, EOFError):
+                break
 
         if not raw:
             continue
@@ -1732,7 +1746,34 @@ def run_repl(broker: BrokerAPI) -> None:
                     llm_provider=getattr(agent, "_provider", None),
                 )
 
-            elif command == "quick":
+                        elif command in ("funnel", "smart-funnel", "screen-funnel"):
+                # Institutional 3-Stage Smart Funnel: Quant Pre-filter -> Multi-Agent Debate -> Trade Plans
+                # Usage: funnel [nifty_it | nifty50 | nifty_bank | SYM1 SYM2 ...] [--top 3]
+                if not args:
+                    console.print("[dim]Usage: funnel <preset or symbols> [--top N][/dim]")
+                    console.print("[dim]  funnel nifty_it             → Screen IT sector, debate top 3[/dim]")
+                    console.print("[dim]  funnel nifty50 --top 5      → Screen NIFTY 50, debate top 5[/dim]")
+                    console.print("[dim]  funnel INFY TCS HDFC PERSIS → Screen specific watchlist[/dim]")
+                else:
+                    from agent.smart_funnel import SmartFunnel
+
+                    top_n = 3
+                    clean_args = []
+                    for i, a in enumerate(args):
+                        if a in ("--top", "-n") and i + 1 < len(args):
+                            try:
+                                top_n = int(args[i + 1])
+                            except ValueError:
+                                pass
+                        elif not a.startswith("-") and (i == 0 or args[i - 1] not in ("--top", "-n")):
+                            clean_args.append(a.upper())
+
+                    target = clean_args if len(clean_args) > 1 else (clean_args[0] if clean_args else "nifty_it")
+                    funnel = SmartFunnel()
+                    res = funnel.run(symbols=target, top_n=top_n)
+                    funnel.print_summary(res)
+
+elif command == "quick":
                 # Quick scan: single-agent, 1 LLM call, 3-5s
                 # Usage: quick SYMBOL [SYMBOL2 ...]
 

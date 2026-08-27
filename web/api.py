@@ -63,7 +63,18 @@ load_dotenv(app_data_path(".env"), override=False)
 
 _load_keychain()
 
-app = FastAPI(title="Vibe Trading", docs_url=None, redoc_url=None)
+from contextlib import asynccontextmanager
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Lifespan context manager for startup and shutdown events."""
+    init_auth_db()
+    await _auto_restore_brokers()
+    yield
+
+
+app = FastAPI(title="Vibe Trading", docs_url=None, redoc_url=None, lifespan=lifespan)
 
 # ── CORS — allow Electron renderer (Vite dev + packaged file://) ──────────
 from fastapi.middleware.cors import CORSMiddleware
@@ -148,13 +159,11 @@ app.include_router(_skills_router)
 # ── Startup: auto-restore broker sessions from disk ───────────
 
 
-@app.on_event("startup")
 async def _init_auth() -> None:
     """Initialize the auth database on startup."""
     init_auth_db()
 
 
-@app.on_event("startup")
 async def _auto_restore_brokers() -> None:
     """
     On every sidecar start, check each broker's token file.

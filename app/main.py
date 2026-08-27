@@ -1,4 +1,4 @@
-"""
+﻿"""
 app/main.py
 ───────────
 Entry point for the trading platform.
@@ -13,6 +13,15 @@ from __future__ import annotations
 
 import os
 import sys
+
+if sys.platform == 'win32':
+    try:
+        if sys.stdout and hasattr(sys.stdout, 'reconfigure'):
+            sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+        if sys.stderr and hasattr(sys.stderr, 'reconfigure'):
+            sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+    except Exception:
+        pass
 import socket
 from pathlib import Path
 
@@ -42,7 +51,7 @@ from rich.console import Console
 
 from brokers.session import login
 
-console = Console()
+console = Console(legacy_windows=False)
 
 BANNER = """
 [bold cyan]

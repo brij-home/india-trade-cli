@@ -41,6 +41,7 @@ ENV/
 .DS_Store
 
 # ── Data / cache ─────────────────────────────────────────────
+.pytest_trading_platform/
 *.csv
 *.parquet
 .cache/
