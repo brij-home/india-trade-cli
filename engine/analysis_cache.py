@@ -309,3 +309,13 @@ class AnalysisCache:
 
 # Global singleton instance
 analysis_cache = AnalysisCache()
+
+
+def cache_get(key: str, namespace: str = "generic", max_age_seconds: int = 600) -> Any | None:
+    """Retrieve cached JSON payload by key and namespace."""
+    return analysis_cache.get_macro(f"{namespace}:{key}")
+
+
+def cache_set(key: str, data: Any, namespace: str = "generic", ttl_minutes: int = 15) -> None:
+    """Save JSON payload with namespace and TTL."""
+    analysis_cache.save_macro(f"{namespace}:{key}", data, ttl_minutes=ttl_minutes)

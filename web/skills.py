@@ -2136,3 +2136,152 @@ async def skill_funnel(req: FunnelSkillRequest):
     except Exception as e:
         raise _err(str(e))
 
+
+# ── Market Structure & SMC Skill ──────────────────────────────
+
+
+class MarketStructureSkillRequest(BaseModel):
+    symbol: str
+    exchange: str = "NSE"
+    timeframe: str = "day"
+
+
+@router.post("/market_structure")
+async def skill_market_structure(req: MarketStructureSkillRequest):
+    """
+    Smart Money Concepts (SMC): Swing Pivots, MSS/CHoCH, BOS, Order Blocks, FVGs, and Liquidity Sweeps.
+    """
+    try:
+        from analysis.market_structure import analyze_market_structure
+
+        report = analyze_market_structure(req.symbol, exchange=req.exchange, timeframe=req.timeframe)
+        return _ok(report.to_dict())
+    except Exception as e:
+        raise _err(str(e))
+
+
+# ── Volume Profile & VPA Skill ────────────────────────────────
+
+
+class VolumeProfileSkillRequest(BaseModel):
+    symbol: str
+    exchange: str = "NSE"
+    timeframe: str = "day"
+
+
+@router.post("/volume_profile")
+async def skill_volume_profile(req: VolumeProfileSkillRequest):
+    """
+    Volume Profile (POC, VAH, VAL), Relative Volume (RVOL), and Volume Spread Analysis (VSA).
+    """
+    try:
+        from analysis.volume_profile import analyze_volume_profile
+
+        report = analyze_volume_profile(req.symbol, exchange=req.exchange, timeframe=req.timeframe)
+        return _ok(report.to_dict())
+    except Exception as e:
+        raise _err(str(e))
+
+
+# ── Multibagger Screener Skill ────────────────────────────────
+
+
+class MultibaggerSkillRequest(BaseModel):
+    symbol: str
+    exchange: str = "NSE"
+
+
+@router.post("/multibagger")
+async def skill_multibagger(req: MultibaggerSkillRequest):
+    """
+    Minervini 8-Point Trend Template, Weinstein Stage Analysis, VCP Detection, and Multibagger Score.
+    """
+    try:
+        from analysis.multibagger import scan_multibagger_opportunity
+
+        report = scan_multibagger_opportunity(req.symbol, exchange=req.exchange)
+        return _ok(report.to_dict())
+    except Exception as e:
+        raise _err(str(e))
+
+
+# ── Active Trade Lifecycle & Trailing Stop Skill ───────────────
+
+
+class LifecycleSkillRequest(BaseModel):
+    symbol: str
+    entry_price: float
+    initial_stop_loss: float
+    current_ltp: Optional[float] = None
+    position_type: str = "LONG"
+    exchange: str = "NSE"
+
+
+@router.post("/lifecycle")
+async def skill_lifecycle(req: LifecycleSkillRequest):
+    """
+    Audit active trade health, R-multiple payoff, 2R breakeven shift, and Chandelier ATR / Structure Trailing Stops.
+    """
+    try:
+        from engine.trade_lifecycle import audit_position_lifecycle
+
+        report = audit_position_lifecycle(
+            symbol=req.symbol,
+            entry_price=req.entry_price,
+            initial_stop_loss=req.initial_stop_loss,
+            current_ltp=req.current_ltp,
+            position_type=req.position_type,
+            exchange=req.exchange,
+        )
+        return _ok(report.to_dict())
+    except Exception as e:
+        raise _err(str(e))
+
+
+# ── Top 10 High-Conviction Opportunities Skill ────────────────
+
+
+class TopConvictionSkillRequest(BaseModel):
+    universe: str = "auto_market_aware"
+    exchange: str = "NSE"
+    top_n: int = 10
+    refresh: bool = False
+
+
+@router.post("/top_conviction")
+async def skill_top_conviction(req: TopConvictionSkillRequest):
+    """
+    Scan universe and return Top N high-conviction trading opportunities across SMC, VPA, Minervini, and RRG.
+    Supports 'auto_market_aware', 'most_liquid_today', 'volume_surges_rvol', 'multibagger_hunters', 'nifty50',
+    or individual sector IDs ('banking', 'it', 'auto', 'defence', 'energy', 'metals', 'pharma', 'fmcg', 'infra', 'chemicals').
+    """
+    try:
+        from analysis.high_conviction import scan_high_conviction_opportunities
+
+        res = scan_high_conviction_opportunities(
+            universe=req.universe,
+            exchange=req.exchange,
+            top_n=req.top_n,
+            use_cache=not req.refresh,
+        )
+        return _ok(res.to_dict())
+    except Exception as e:
+        raise _err(str(e))
+
+
+@router.get("/universe_categories")
+async def skill_universe_categories():
+    """
+    Get all structured institutional equity sectors and thematic presets with counts and icons.
+    """
+    try:
+        from analysis.universe import get_taxonomy_categories
+
+        categories = get_taxonomy_categories()
+        return _ok({"categories": categories})
+    except Exception as e:
+        raise _err(str(e))
+
+
+
+

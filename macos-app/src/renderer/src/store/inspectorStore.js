@@ -115,16 +115,119 @@ export const METRIC_ENCYCLOPEDIA = {
   },
 
   smart_funnel_pipeline: {
-    title: '3-Stage Institutional Smart Funnel',
-    category: 'AI Pipeline',
-    tagColor: 'purple',
-    formula: 'Stage 1 (0-Token Quant Filter) → Stage 2 (Macro & Sector RRG Context) → Stage 3 (Adversarial Debate & Synthesis)',
+    title: 'Smart Funnel 3-Stage Screening Pipeline',
+    category: 'Multi-Agent Orchestration',
+    tagColor: 'amber',
+    formula: 'Candidate Score = Technicals(30%) + Valuation(20%) + Sector RRG Tailwind(25%) + Forensic Score(25%) - Red Flag Penalties',
     thresholds: [
-      { condition: 'Score ≥ 70/100', label: 'QUALIFIED CANDIDATE', color: 'green', desc: 'Passed RSI, Moving Averages, Sector RRG tailwind, and Forensic screens.' },
-      { condition: 'Score < 70/100', label: 'FILTERED / ELIMINATED', color: 'red', desc: 'Disqualified deterministically without consuming LLM inference tokens.' },
+      { condition: 'Score ≥ 70', label: 'QUALIFIED CANDIDATE', color: 'green', desc: 'Passed deterministic pre-filter; advances to Bull vs Bear LLM debate.' },
+      { condition: 'Score < 70', label: 'DISQUALIFIED / FILTERED', color: 'red', desc: 'Eliminated in Stage 1 without consuming LLM inference tokens.' },
     ],
-    explanation: 'An institutional funnel architecture that screens hundreds of NSE/BSE stocks through fast quantitative filters, macro alignment, and multi-agent debates between Bull and Bear specialists before producing a synthesized trade plan.',
-    institutionalGuide: 'Combines algorithmic precision (zero hallucinations in metrics) with LLM deep synthesis, ensuring only high-conviction trades reach execution.',
+    explanation: 'A 3-stage quantitative funnel that filters 100+ tickers deterministically in Stage 1, contextualizes with macro & VIX in Stage 2, and runs an adversarial Bull vs Bear multi-agent debate in Stage 3.',
+    institutionalGuide: 'Combines algorithmic cost-efficiency with deep adversarial qualitative debate to produce institutional trade plans with strict invalidation stops.',
+    variables: [
+      { name: 'Stage 1 (Pure Quant Pre-Filter)', desc: 'Zero-token algorithmic screen on RSI, EMAs, DCF upside, RRG tailwinds, and Beneish M-Score.' },
+      { name: 'Stage 2 (Macro Context Injection)', desc: 'Injects India VIX, FII/DII institutional net flows, and Sector RRG rotation matrix.' },
+      { name: 'Stage 3 (Adversarial Persona Debate)', desc: 'Bull vs Bear analysts synthesize trade plan under Facilitator & Fund Manager supervision.' },
+    ],
+  },
+
+  market_structure_smc: {
+    title: 'Smart Money Concepts (SMC) & Market Structure',
+    category: 'Price Action & SMC',
+    tagColor: 'green',
+    formula: 'BULLISH: HH + HL Sequence | BEARISH: LH + LL Sequence\nCHoCH: Break above prior Lower High in downtrend (Bullish Reversal)',
+    thresholds: [
+      { condition: 'Score ≥ +40', label: 'CONFIRMED BULLISH STRUCTURE', color: 'green', desc: 'Higher Highs and Higher Lows confirmed by fractal swing points.' },
+      { condition: 'CHoCH Triggered', label: 'MARKET STRUCTURE SHIFT', color: 'amber', desc: 'Early trend reversal transition (Wyckoff Spring or Breakout).' },
+      { condition: 'Score ≤ -40', label: 'CONFIRMED BEARISH STRUCTURE', color: 'red', desc: 'Lower Highs and Lower Lows; avoid long entries.' },
+    ],
+    explanation: 'Smart Money Concepts analyzes market structure through fractal swing pivots, unmitigated Order Blocks (institutional demand/supply footprints), Fair Value Gaps (FVG liquidity imbalances), and liquidity sweeps.',
+    institutionalGuide: 'Enter exclusively in the direction of the dominant higher-timeframe structure, ideally on pullbacks into unmitigated Demand Order Blocks with invalidation stops below confirmed structural swing lows.',
+    variables: [
+      { name: 'MSS / CHoCH (Change of Character)', desc: 'Early structural trend shift breaking prior swing high/low (bottom or top fishing trigger).' },
+      { name: 'BOS (Break of Structure)', desc: 'Trend continuation break confirming aggressive institutional momentum.' },
+      { name: 'Demand Order Block (OB)', desc: 'Last down candle prior to an explosive upward displacement move that broke market structure.' },
+      { name: 'Fair Value Gap (FVG)', desc: '3-candle price imbalance indicating rapid institutional order filling with unfilled liquidity.' },
+      { name: 'Liquidity Sweep (Stop Hunt)', desc: 'False breakout below swing low that immediately reclaims the level (Wyckoff Spring).' },
+    ],
+  },
+
+  volume_profile_vpa: {
+    title: 'Volume Price Analysis (VPA) & Volume Profile',
+    category: 'Volume & Footprint',
+    tagColor: 'blue',
+    formula: 'RVOL = Current Volume / 20-Day SMA Volume\nValue Area = 70% of total volume radiating from Point of Control (POC)',
+    thresholds: [
+      { condition: 'RVOL ≥ 2.0x', label: 'HIGH INSTITUTIONAL VOLUME', color: 'green', desc: 'Heavy institutional buying or selling participation.' },
+      { condition: 'Above VAH', label: 'VALUE AREA EXPANSION', color: 'blue', desc: 'Price accepted above Value Area High (bullish breakout).' },
+      { condition: 'RVOL < 0.6x', label: 'VOLUME DRY-UP', color: 'amber', desc: 'Lack of selling pressure on pullbacks (seller exhaustion).' },
+    ],
+    explanation: 'Combines Point of Control (POC) Volume Profile histograms with Wyckoff Volume Spread Analysis (VSA) to detect absorption, stopping volume, and institutional accumulation.',
+    institutionalGuide: 'Genuine breakouts must be backed by RVOL ≥ 1.8x. Narrow spread bars on high volume signal stopping volume / institutional absorption.',
+    variables: [
+      { name: 'POC (Point of Control)', desc: 'Price level where the maximum trading volume was transacted (strong gravitational support/resistance).' },
+      { name: 'VAH & VAL', desc: 'Value Area High (upper 70% boundary) and Value Area Low (lower 70% boundary).' },
+      { name: 'Absorption / Stopping Volume', desc: 'High volume with narrow spread near support indicating institutions buying up all retail panic selling.' },
+    ],
+  },
+
+  minervini_trend_template: {
+    title: 'Mark Minervini 8-Point Trend Template',
+    category: 'Positional Superperformers',
+    tagColor: 'purple',
+    formula: 'Criteria: Price > 150 & 200 SMA, 150 > 200 SMA, 200 SMA Rising, 50 > 150 & 200, Price > 50 SMA, >= 30% Above 52W Low, <= 25% Off 52W High',
+    thresholds: [
+      { condition: '8 / 8 Passed', label: 'PERFECT STAGE 2 LEADER', color: 'green', desc: 'Meets all quantitative requirements of historical multibagger superperformers.' },
+      { condition: '6–7 Passed', label: 'QUALIFIED LEADER', color: 'blue', desc: 'Strong technical momentum alignment; valid candidate for breakout.' },
+      { condition: '< 6 Passed', label: 'DISQUALIFIED / BASE FORMING', color: 'red', desc: 'Lacks full institutional trend alignment; avoid aggressive positioning.' },
+    ],
+    explanation: 'Developed by U.S. Investing Champion Mark Minervini, this 8-criteria trend template is the definitive filter used to identify stocks in powerful Stage 2 markup phases prior to multi-hundred percent gains.',
+    institutionalGuide: 'Never buy a stock trading below its 200-day moving average or in a Stage 4 decline. Leaders make higher highs while holding above their 50-day moving average.',
+    variables: [
+      { name: 'Moving Average Alignment', desc: 'Price > 50 EMA > 150 EMA > 200 SMA with upward slope.' },
+      { name: '52-Week High Proximity', desc: 'Stock must trade within 25% of its 52-week high (multibaggers lead near highs).' },
+      { name: '52-Week Low Distance', desc: 'Stock must be at least 30% above its 52-week low to ensure bottom lag is eliminated.' },
+    ],
+  },
+
+  weinstein_stage_analysis: {
+    title: 'Stan Weinstein 4-Stage Market Analysis',
+    category: 'Positional Cycles',
+    tagColor: 'green',
+    formula: 'Stage 1 (Basing) -> Stage 2 (Markup/Expansion) -> Stage 3 (Distribution) -> Stage 4 (Markdown/Decline)',
+    thresholds: [
+      { condition: 'Stage 2 (Markup)', label: 'BUY / MULTIBAGGER ZONE', color: 'green', desc: 'Breakout above 30-week / 200-day SMA on massive volume. Heavy long bias.' },
+      { condition: 'Stage 1 (Base)', label: 'WATCHLIST / ACCUMULATION', color: 'blue', desc: 'Constructing multi-month base; wait for Stage 2 breakout confirmation.' },
+      { condition: 'Stage 4 (Markdown)', label: 'AVOID / SHORT ZONE', color: 'red', desc: 'Declining price below falling 200-day SMA. Never hold or average down.' },
+    ],
+    explanation: 'Classic stage analysis framework created by Stan Weinstein in Secrets for Profiting in Bull and Bear Markets. Classifies every asset into 4 distinct macro phases based on its 30-week (200-day) moving average.',
+    institutionalGuide: '100% of major multibaggers originate from a Stage 2 breakout. Position traders enter on the initial Stage 2 expansion or on low-volume retests of the 50-day EMA.',
+    variables: [
+      { name: 'Stage 1 (Basing Area)', desc: 'Price oscillates sideways around a flattening 200-day SMA with diminishing volume.' },
+      { name: 'Stage 2 (Advancing Phase)', desc: 'Explosive breakout above resistance on high volume, 200-day SMA turns upward.' },
+      { name: 'Stage 3 (Top Area)', desc: 'Volatility widens, volume expands on down-days, 200-day SMA flattens.' },
+      { name: 'Stage 4 (Declining Phase)', desc: 'Breakdown below support, price collapses below declining 200-day SMA.' },
+    ],
+  },
+
+  chandelier_trailing_sl: {
+    title: 'Chandelier ATR & Structure Trailing Stop-Loss',
+    category: 'Trade Management',
+    tagColor: 'amber',
+    formula: 'Chandelier Stop = Highest High (N bars) - (3.0 · ATR_14)\nStructure Stop = Highest Confirmed Higher Low (HL) on Daily Timeframe',
+    thresholds: [
+      { condition: 'Payoff ≥ 2.0R', label: 'BREAKEVEN SHIFT', color: 'green', desc: 'Scale out 33-50% and raise stop-loss to Breakeven (+0.2% cost buffer).' },
+      { condition: 'Payoff ≥ 3.0R', label: 'ACTIVATE CHANDELIER TRAIL', color: 'blue', desc: 'Trail stop dynamically below Highest High - 3.0x ATR to capture runner.' },
+      { condition: 'Price < Trailing Stop', label: 'STRUCTURAL EXIT', color: 'red', desc: 'Exit position gracefully without emotional attachment.' },
+    ],
+    explanation: 'A systematic trade lifecycle and position management framework that locks in risk-free status at 2R and protects multibagger runners using volatility-adjusted Chandelier ATR and market structure trailing stops.',
+    institutionalGuide: 'Never exit a winning multibagger on a fixed price target. Scale out 33-50% at 2R to eliminate account risk, then let the market take you out when the structural trend ends.',
+    variables: [
+      { name: '2R Breakeven Pivot', desc: 'When profit reaches 2x initial risk, lock partial gains and eliminate risk.' },
+      { name: 'Structure Higher Low (HL)', desc: 'Trails stop behind verified structural support levels created by price swings.' },
+      { name: 'Chandelier ATR (3.0x ATR)', desc: 'Gives the asset sufficient volatility buffer while preventing major profit givebacks.' },
+    ],
   },
 }
 

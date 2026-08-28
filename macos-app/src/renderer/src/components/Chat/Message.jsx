@@ -34,6 +34,10 @@ import RRGCard            from '../Cards/RRGCard'
 import ForensicCard       from '../Cards/ForensicCard'
 import PositionSizerCard  from '../Cards/PositionSizerCard'
 import FunnelCard         from '../Cards/FunnelCard'
+import MarketStructureCard from '../Cards/MarketStructureCard'
+import MultibaggerCard    from '../Cards/MultibaggerCard'
+import PositionTrackerCard from '../Cards/PositionTrackerCard'
+import HighConvictionCard from '../Cards/HighConvictionCard'
 
 export default function Message({ message }) {
   const { role, text, cardType, data } = message
@@ -85,6 +89,19 @@ export default function Message({ message }) {
     case 'position_size':      return <PositionSizerCard data={data} />
     case 'funnel':
     case 'smart_funnel':       return <FunnelCard data={data} />
+    case 'structure':
+    case 'market_structure':
+    case 'smc':                return <MarketStructureCard data={data} />
+    case 'multibagger':
+    case 'vcp':
+    case 'stage2':             return <MultibaggerCard data={data} />
+    case 'lifecycle':
+    case 'trade_lifecycle':
+    case 'trailing_sl':        return <PositionTrackerCard data={data} />
+    case 'top_conviction':
+    case 'conviction':
+    case 'top10':
+    case 'radar':              return <HighConvictionCard data={data} />
     case 'drift':              return <DriftCard data={data} />
     case 'pairs':              return <PairsCard data={data} />
     case 'memory':             return <MemoryCard data={data} />

@@ -730,3 +730,141 @@ class TestSkillRRGAndForensics:
             assert data["status"] == "ok"
             assert data["data"]["qualified_count"] == 1
 
+
+class TestSkillSMCAndLifecycle:
+    def test_skill_market_structure(self, client):
+        import pandas as pd
+        dates = pd.date_range("2025-01-01", periods=30, freq="D")
+        closes = [100 + i * 2 for i in range(30)]
+        fake_df = pd.DataFrame({"date": dates, "open": closes, "high": [c + 2 for c in closes], "low": [c - 2 for c in closes], "close": closes, "volume": [10000]*30})
+
+        with patch("analysis.market_structure.analyze_market_structure") as mock_ms:
+            from analysis.market_structure import MarketStructureReport
+            mock_ms.return_value = MarketStructureReport(
+                symbol="RELIANCE",
+                ltp=2400.0,
+                regime="BULLISH",
+                structure_score=75,
+                setup_type="BREAKOUT_EXPANSION",
+                setup_confidence=80,
+            )
+            r = client.post("/skills/market_structure", json={"symbol": "RELIANCE"})
+            assert r.status_code == 200
+            assert r.json()["data"]["regime"] == "BULLISH"
+
+    def test_skill_volume_profile(self, client):
+        with patch("analysis.volume_profile.analyze_volume_profile") as mock_vp:
+            from analysis.volume_profile import VolumeProfileReport
+            mock_vp.return_value = VolumeProfileReport(
+                symbol="NIFTY",
+                ltp=24000.0,
+                rvol_20d=2.1,
+                rvol_50d=1.9,
+                volume_tier="HIGH",
+                footprint_bias="ACCUMULATION",
+                footprint_score=60,
+                poc_price=23950.0,
+                vah_price=24100.0,
+                val_price=23800.0,
+                price_vs_value_area="INSIDE_VALUE_AREA",
+            )
+            r = client.post("/skills/volume_profile", json={"symbol": "NIFTY"})
+            assert r.status_code == 200
+            assert r.json()["data"]["rvol_20d"] == 2.1
+
+    def test_skill_multibagger(self, client):
+        with patch("analysis.multibagger.scan_multibagger_opportunity") as mock_mb:
+            from analysis.multibagger import MultibaggerReport
+            mock_mb.return_value = MultibaggerReport(
+                symbol="TRENT",
+                ltp=6500.0,
+                multibagger_score=85,
+                category="STAGE_2_SUPERPERFORMER",
+                trend_template_passed=8,
+                trend_template_qualified=True,
+                weinstein_stage="STAGE_2_MARKUP",
+            )
+            r = client.post("/skills/multibagger", json={"symbol": "TRENT"})
+            assert r.status_code == 200
+            assert r.json()["data"]["multibagger_score"] == 85
+
+    def test_skill_lifecycle(self, client):
+        with patch("engine.trade_lifecycle.audit_position_lifecycle") as mock_lc:
+            from engine.trade_lifecycle import PositionLifecycleReport
+            mock_lc.return_value = PositionLifecycleReport(
+                symbol="INFY",
+                ltp=1650.0,
+                entry_price=1500.0,
+                initial_stop_loss=1450.0,
+                initial_risk_per_share=50.0,
+                current_pnl_pts=150.0,
+                current_pnl_pct=10.0,
+                current_r_multiple=3.0,
+                health_status="HEALTHY_ACCELERATING",
+                health_score=90,
+                breakeven_reached=True,
+                recommended_action="HOLD_RUNNER",
+            )
+            r = client.post(
+                "/skills/lifecycle",
+                json={"symbol": "INFY", "entry_price": 1500, "initial_stop_loss": 1450},
+            )
+            assert r.status_code == 200
+            assert r.json()["data"]["current_r_multiple"] == 3.0
+
+    def test_skill_top_conviction(self, client):
+        with patch("analysis.high_conviction.scan_high_conviction_opportunities") as mock_scan:
+            from analysis.high_conviction import HighConvictionScanResult, HighConvictionOpportunity
+            fake_opp = HighConvictionOpportunity(
+                rank=1,
+                symbol="TRENT",
+                sector="Retail",
+                ltp=6500.0,
+                conviction_score=95,
+                setup_type="VCP_CONTRACTION",
+                setup_title="⚡ VCP Contraction",
+                trade_bias="LONG",
+                entry_price=6500.0,
+                stop_loss=6250.0,
+                target_1=7000.0,
+                target_2=7500.0,
+                risk_reward_ratio=2.0,
+                risk_pts=250.0,
+                reward_pts=500.0,
+                catalyst_summary="Stage 2 Superperformer",
+                structure_regime="BULLISH",
+                weinstein_stage="STAGE_2_MARKUP",
+                trend_template_passed=8,
+                rvol_20d=2.4,
+                vcp_detected=True,
+                forensic_quality="A+",
+            )
+            mock_scan.return_value = HighConvictionScanResult(
+                timestamp="28 Aug 2026, 03:00 PM IST",
+                scanned_universe="nifty50",
+                total_scanned=1,
+                market_posture="BULLISH_EXPANSION",
+                leading_sectors=["Retail", "IT"],
+                opportunities=[fake_opp],
+                summary="Top setups scanned.",
+            )
+            r = client.post("/skills/top_conviction", json={"universe": "nifty50", "top_n": 1})
+            assert r.status_code == 200
+            d = r.json()["data"]
+            assert d["market_posture"] == "BULLISH_EXPANSION"
+            assert len(d["opportunities"]) == 1
+            assert d["opportunities"][0]["symbol"] == "TRENT"
+
+    def test_skill_universe_categories(self, client):
+        r = client.get("/skills/universe_categories")
+        assert r.status_code == 200
+        d = r.json()["data"]
+        assert "categories" in d
+        assert len(d["categories"]) >= 10
+        types = {c["type"] for c in d["categories"]}
+        assert "THEMATIC" in types
+        assert "SECTOR" in types
+
+
+
+

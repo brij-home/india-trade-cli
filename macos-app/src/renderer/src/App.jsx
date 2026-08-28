@@ -9,6 +9,7 @@ import OnboardingWizard from './components/Onboarding/OnboardingWizard'
 import CommandPalette from './components/Modals/CommandPalette'
 import OrderTicketModal from './components/Modals/OrderTicketModal'
 import MetricExplainerModal from './components/Modals/MetricExplainerModal'
+import TopOpportunitiesModal from './components/Modals/TopOpportunitiesModal'
 
 function useTheme() {
   const [theme, setThemeState] = useState(() => {
@@ -47,6 +48,10 @@ export default function App() {
   // 'initializing' | 'progress' | 'python_missing' | 'error' | 'onboarding' | 'ready'
   const [setupData, setSetupData] = useState(null)
 
+  const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false)
+  const [isOrderTicketOpen, setIsOrderTicketOpen] = useState(false)
+  const [isTopOppsOpen, setIsTopOppsOpen] = useState(false)
+
   useEffect(() => {
     // Web mode — no Electron IPC, just check if server is ready
     if (window.__INDIA_TRADE_WEB__) {
@@ -54,13 +59,12 @@ export default function App() {
         try {
           const res = await fetch('/api/onboarding/status')
           if (res.status === 401) {
-            // Not authenticated — auth.html should have redirected, but just in case
             window.location.href = '/'
             return
           }
           const data = await res.json()
           const currentPort = parseInt(window.location.port, 10) || 8765
-          setPort(currentPort) // Signal that API is available with valid port
+          setPort(currentPort)
           if (data.onboarding_complete) {
             setSetupPhase('ready')
           } else {
@@ -75,19 +79,16 @@ export default function App() {
       return
     }
 
-    // Setup progress events
     window.electronAPI?.onSetupProgress((data) => {
       setSetupPhase('progress')
       setSetupData(data)
     })
 
-    // Python not found
     window.electronAPI?.onSetupPythonMissing((data) => {
       setSetupPhase('python_missing')
       setSetupData(data)
     })
 
-    // Sidecar ready — check onboarding before showing main UI
     window.electronAPI?.onSidecarReady(async ({ port }) => {
       setPort(port)
       try {
@@ -103,7 +104,6 @@ export default function App() {
       }
     })
 
-    // Sidecar error — could be during setup or runtime
     window.electronAPI?.onSidecarError(({ message, details }) => {
       setSidecarError(message)
       if (setupPhase !== 'ready') {
@@ -112,7 +112,6 @@ export default function App() {
       }
     })
 
-    // Check if port already set (HMR / reload)
     window.electronAPI?.getPort().then(async (port) => {
       if (port) {
         setPort(port)
@@ -137,7 +136,7 @@ export default function App() {
     const statusUrl = `${getBaseUrl(port)}/api/status`
     const fetchStatus = () =>
       fetch(statusUrl)
-        .then(r => r.json())
+        .then((r) => r.json())
         .then(setBrokerStatuses)
         .catch(() => {})
     fetchStatus()
@@ -145,10 +144,7 @@ export default function App() {
     return () => clearInterval(t)
   }, [port])
 
-  const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false)
-  const [isOrderTicketOpen, setIsOrderTicketOpen] = useState(false)
-
-  // Cmd+N / Ctrl+N (new session) & Cmd+K / Ctrl+K (command palette)
+  // Keybindings: Cmd/Ctrl+N, Cmd/Ctrl+K, Cmd/Ctrl+O (Top Opps)
   useEffect(() => {
     function onKeyDown(e) {
       if ((e.metaKey || e.ctrlKey) && e.key === 'n') {
@@ -159,24 +155,25 @@ export default function App() {
         e.preventDefault()
         setIsCommandPaletteOpen((prev) => !prev)
       }
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'o') {
+        e.preventDefault()
+        setIsTopOppsOpen((prev) => !prev)
+      }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [createSession])
 
-  // Show onboarding wizard for first-launch setup
   if (setupPhase === 'onboarding') {
     return <OnboardingWizard port={port} onComplete={() => setSetupPhase('ready')} />
   }
 
-  // Show setup screen until ready
   if (setupPhase !== 'ready') {
     return <SetupScreen phase={setupPhase} data={setupData} />
   }
 
   return (
     <div className="flex flex-col h-full bg-surface">
-
       {/* Title bar */}
       <div className="drag flex items-center h-[52px] bg-panel border-b border-border flex-shrink-0 px-4">
         <div className="flex items-center gap-2 pointer-events-none">
@@ -203,7 +200,16 @@ export default function App() {
         </div>
 
         {/* Right Action Icons */}
-        <div className="no-drag flex items-center gap-3">
+        <div className="no-drag flex items-center gap-2.5">
+          <button
+            type="button"
+            onClick={() => setIsTopOppsOpen(true)}
+            className="hidden sm:flex items-center gap-1.5 bg-amber/15 hover:bg-amber/25 text-amber border border-amber/30 px-2.5 py-1 rounded-lg text-xs font-ui font-bold transition-colors cursor-pointer shadow-xs"
+            title="Open Top 10 High-Conviction Opportunities Radar (Ctrl+O)"
+          >
+            <span>🎯</span> Top 10 Radar
+          </button>
+
           <button
             type="button"
             onClick={() => setIsOrderTicketOpen(true)}
@@ -239,6 +245,10 @@ export default function App() {
         isOpen={isOrderTicketOpen}
         onClose={() => setIsOrderTicketOpen(false)}
         initialData={{ symbol: 'RELIANCE', exchange: 'NSE', price: 2800, stopLoss: 2760, target: 2890 }}
+      />
+      <TopOpportunitiesModal
+        isOpen={isTopOppsOpen}
+        onClose={() => setIsTopOppsOpen(false)}
       />
       <MetricExplainerModal />
     </div>

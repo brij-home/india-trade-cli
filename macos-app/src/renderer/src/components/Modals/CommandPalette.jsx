@@ -20,8 +20,11 @@ const POPULAR_SYMBOLS = [
 const QUICK_ACTIONS = [
   { label: 'Morning Market Brief & Macro Posture', cmd: 'brief', icon: '🌅', cat: 'Intelligence' },
   { label: 'Smart Funnel Multi-Agent Screening (NIFTY 50)', cmd: 'funnel nifty_50', icon: '🎯', cat: 'Screening' },
+  { label: 'Market Structure & Smart Money Concepts (RELIANCE)', cmd: 'structure RELIANCE', icon: '🏛️', cat: 'Price Action' },
+  { label: 'Multibagger & Minervini Trend Template (TRENT)', cmd: 'multibagger TRENT', icon: '💎', cat: 'Positional' },
   { label: 'Sector Relative Rotation Graph (RRG Matrix)', cmd: 'rrg', icon: '🌐', cat: 'Quant' },
   { label: 'Forensic Accounting & Governance Audit (RELIANCE)', cmd: 'forensic RELIANCE', icon: '🛡️', cat: 'Forensic' },
+  { label: 'Position Lifecycle & Dynamic Trailing SL (RELIANCE)', cmd: 'lifecycle RELIANCE 2400 2340', icon: '📡', cat: 'Management' },
   { label: 'Volatility Risk-Parity & Position Sizer (NIFTY)', cmd: 'size NIFTY 24000 23600', icon: '⚖️', cat: 'Risk' },
   { label: 'FII / DII Institutional Flows & Signals', cmd: 'flows', icon: '🌊', cat: 'Intelligence' },
   { label: 'Options Open Interest Profile (NIFTY)', cmd: 'oi NIFTY', icon: '📊', cat: 'Options' },

@@ -1482,6 +1482,123 @@ def build_registry() -> ToolRegistry:
         ).as_dict(),
     )
 
+    # ── Market Structure & Smart Money Concepts (SMC) ─────────
+
+    reg.register(
+        name="analyze_market_structure",
+        description=(
+            "Perform Smart Money Concepts (SMC) analysis. Identifies Fractal Swing Pivots, "
+            "MSS / CHoCH (Change of Character), BOS (Break of Structure), unmitigated Demand & Supply "
+            "Order Blocks (OB), Fair Value Gaps (FVG), and Liquidity Sweeps."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "symbol": {"type": "string", "description": "Stock symbol e.g. 'RELIANCE'"},
+                "exchange": {"type": "string", "default": "NSE"},
+                "timeframe": {"type": "string", "default": "day"},
+            },
+            "required": ["symbol"],
+        },
+        fn=lambda symbol, exchange="NSE", timeframe="day": __import__(
+            "analysis.market_structure", fromlist=["analyze_market_structure"]
+        ).analyze_market_structure(symbol=symbol, exchange=exchange, timeframe=timeframe).to_dict(),
+    )
+
+    # ── Volume Profile & VPA ──────────────────────────────────
+
+    reg.register(
+        name="analyze_volume_profile",
+        description=(
+            "Compute Volume Profile (POC, VAH, VAL), Relative Volume (RVOL 20D/50D), "
+            "and Volume Spread Analysis (VSA) stopping/absorption volume signals."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "symbol": {"type": "string", "description": "Stock symbol e.g. 'TATASTEEL'"},
+                "exchange": {"type": "string", "default": "NSE"},
+                "timeframe": {"type": "string", "default": "day"},
+            },
+            "required": ["symbol"],
+        },
+        fn=lambda symbol, exchange="NSE", timeframe="day": __import__(
+            "analysis.volume_profile", fromlist=["analyze_volume_profile"]
+        ).analyze_volume_profile(symbol=symbol, exchange=exchange, timeframe=timeframe).to_dict(),
+    )
+
+    # ── Multibagger & Trend Template Screener ─────────────────
+
+    reg.register(
+        name="scan_multibagger_template",
+        description=(
+            "Evaluate Mark Minervini 8-Point Trend Template, Stan Weinstein Stage Analysis (Stage 2 Markup), "
+            "VCP (Volatility Contraction Pattern) setup, and sector tailwinds for multibagger potential."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "symbol": {"type": "string", "description": "Stock symbol e.g. 'TRENT'"},
+                "exchange": {"type": "string", "default": "NSE"},
+            },
+            "required": ["symbol"],
+        },
+        fn=lambda symbol, exchange="NSE": __import__(
+            "analysis.multibagger", fromlist=["scan_multibagger_opportunity"]
+        ).scan_multibagger_opportunity(symbol=symbol, exchange=exchange).to_dict(),
+    )
+
+    # ── Active Trade Lifecycle & Trailing Stop ────────────────
+
+    reg.register(
+        name="audit_position_lifecycle",
+        description=(
+            "Audit active trade health, R-multiple payoff, 2R breakeven shift, and calculate "
+            "Structure Higher Low and Chandelier ATR (3.0 * ATR) dynamic trailing stops."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "symbol": {"type": "string", "description": "Stock symbol e.g. 'INFY'"},
+                "entry_price": {"type": "number", "description": "Trade entry price"},
+                "initial_stop_loss": {"type": "number", "description": "Initial stop loss price"},
+                "current_ltp": {"type": "number", "description": "Optional current price override"},
+                "position_type": {"type": "string", "default": "LONG"},
+            },
+            "required": ["symbol", "entry_price", "initial_stop_loss"],
+        },
+        fn=lambda symbol, entry_price, initial_stop_loss, current_ltp=None, position_type="LONG": __import__(
+            "engine.trade_lifecycle", fromlist=["audit_position_lifecycle"]
+        ).audit_position_lifecycle(
+            symbol=symbol,
+            entry_price=entry_price,
+            initial_stop_loss=initial_stop_loss,
+            current_ltp=current_ltp,
+            position_type=position_type,
+        ).to_dict(),
+    )
+
+    # ── High-Conviction Opportunity Screener ──────────────────
+
+    reg.register(
+        name="scan_top_conviction_opportunities",
+        description=(
+            "Scan stock watchlists (e.g. 'nifty50', 'high_momentum', 'banking', 'it') and return the "
+            "Top 10 highest-conviction trading opportunities ranked by multi-pillar quantitative alignment "
+            "(SMC, Volume Profile, Minervini Stage 2, RRG Momentum, and Forensic Safety)."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "universe": {"type": "string", "default": "nifty50", "description": "Preset watchlist or comma-separated symbols"},
+                "top_n": {"type": "integer", "default": 10, "description": "Number of top opportunities to return"},
+            },
+        },
+        fn=lambda universe="nifty50", top_n=10: __import__(
+            "analysis.high_conviction", fromlist=["scan_high_conviction_opportunities"]
+        ).scan_high_conviction_opportunities(universe=universe, top_n=top_n).to_dict(),
+    )
+
     # ── Tag all registered tools as read-only + concurrency-safe ──
     # Every tool in the base registry is a read/analyse tool — none place orders.
     # Destructive tools (execute_trade) are added separately by the harness.

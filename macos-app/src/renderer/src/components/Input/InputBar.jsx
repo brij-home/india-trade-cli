@@ -186,6 +186,29 @@ function parseCommand(input) {
       const syms = args[0] || 'nifty_50'
       return { endpoint: '/skills/funnel', body: { symbols: syms, top_n: 3 }, cardType: 'funnel' }
     }
+    case 'structure': case 'market-structure': case 'smc': {
+      const sym = (args[0] ?? 'RELIANCE').toUpperCase()
+      return { endpoint: '/skills/market_structure', body: { symbol: sym }, cardType: 'structure' }
+    }
+    case 'multibagger': case 'vcp': case 'stage2': {
+      const sym = (args[0] ?? 'TRENT').toUpperCase()
+      return { endpoint: '/skills/multibagger', body: { symbol: sym }, cardType: 'multibagger' }
+    }
+    case 'lifecycle': case 'trade-lifecycle': case 'trail': {
+      const sym = (args[0] ?? 'RELIANCE').toUpperCase()
+      const entry = parseFloat(args[1]) || 2400
+      const sl = parseFloat(args[2]) || (entry * 0.97)
+      return { endpoint: '/skills/lifecycle', body: { symbol: sym, entry_price: entry, initial_stop_loss: sl }, cardType: 'lifecycle' }
+    }
+    case 'vpa': case 'volume-profile': {
+      const sym = (args[0] ?? 'NIFTY').toUpperCase()
+      return { endpoint: '/skills/volume_profile', body: { symbol: sym }, cardType: 'markdown' }
+    }
+    case 'top10': case 'top-10': case 'conviction': case 'radar': {
+      const u = args[0] || 'nifty50'
+      const refresh = args.includes('--refresh') || args.includes('-r')
+      return { endpoint: '/skills/top_conviction', body: { universe: u, top_n: 10, refresh }, cardType: 'top_conviction' }
+    }
 
     default:
       // Fall through to AI chat — session_id injected in submit()

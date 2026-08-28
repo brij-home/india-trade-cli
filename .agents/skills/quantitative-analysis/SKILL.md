@@ -89,9 +89,66 @@ The sizing engine ([`engine/position_sizer.py`](file:///c:/Users/brije/.gemini/a
 
 ---
 
-## 4. Testing & Verification
+## 4. Smart Money Concepts (SMC) & Market Structure
+
+The market structure engine ([`analysis/market_structure.py`](file:///c:/Users/brije/.gemini/antigravity/scratch/india-trade-cli/analysis/market_structure.py)) identifies structural regimes and institutional footprints:
+
+- **Fractal Swing Points**: Classifies price action into Higher Highs (HH), Higher Lows (HL), Lower Highs (LH), and Lower Lows (LL).
+- **Structural Shifts**:
+  - `CHoCH` (Change of Character): Early reversal transition (Bottom Fishing / Wyckoff Spring).
+  - `BOS` (Break of Structure): Confirmed trend continuation breakout.
+- **Order Blocks (OB) & Fair Value Gaps (FVG)**:
+  - Demand Order Blocks: Unmitigated institutional accumulation bases.
+  - Fair Value Gaps (FVG): 3-bar price imbalances with fill ratios.
+  - Liquidity Sweeps: Stop-hunts that pierce key support/resistance and immediately reclaim the range.
+- **Usage**:
+  ```python
+  from analysis.market_structure import analyze_market_structure
+
+  report = analyze_market_structure("RELIANCE")
+  # report.regime -> "BULLISH" | "BEARISH" | "RANGING"
+  # report.setup_type -> "BREAKOUT_EXPANSION" | "BOTTOM_FISHING_SPRING" | "PULLBACK_RETEST"
+  # report.nearest_support, report.invalidation_level, report.target_1
+  ```
+
+---
+
+## 5. Volume Price Analysis (VPA) & Volume Profile
+
+The volume engine ([`analysis/volume_profile.py`](file:///c:/Users/brije/.gemini/antigravity/scratch/india-trade-cli/analysis/volume_profile.py)) computes institutional accumulation/distribution:
+
+- **Relative Volume (RVOL)**: Current volume vs 20-day and 50-day moving averages ($>2.0\text{x}$ is institutional expansion).
+- **Volume Spread Analysis (VSA)**: Absorption / Stopping Volume, Effort vs Result (Distribution), and Volume Dry-Up on pullbacks.
+- **Volume Profile**: Point of Control (POC), Value Area High (VAH), and Value Area Low (VAL).
+
+---
+
+## 6. Multibagger & Positional Opportunity Engine
+
+The multibagger engine ([`analysis/multibagger.py`](file:///c:/Users/brije/.gemini/antigravity/scratch/india-trade-cli/analysis/multibagger.py)) screens for high-growth superperformers:
+
+- **Mark Minervini 8-Point Trend Template**: Strict moving average alignment, 52-week high/low boundaries, and upward 200 SMA slope.
+- **Stan Weinstein Stage 2 Breakout**: Identifies Stage 1 base expansion into Stage 2 markup.
+- **VCP Contraction**: Detects progressive narrowing of swing depths (e.g. $20\% \rightarrow 10\% \rightarrow 4\%$) with dry volume.
+- **Multibagger Score (0-100)**: Combines Stage 2, Minervini criteria, RRG sector tailwinds, and Forensic accounting safety.
+
+---
+
+## 7. Trade Lifecycle & Dynamic Trailing Stop-Loss
+
+The lifecycle engine ([`engine/trade_lifecycle.py`](file:///c:/Users/brije/.gemini/antigravity/scratch/india-trade-cli/engine/trade_lifecycle.py)) manages live positions:
+
+- **2R Breakeven Pivot**: At $+2R$ payoff, triggers recommendation to book $33\%\text{--}50\%$ profit and auto-shift Stop-Loss to Breakeven (+ costs).
+- **Dynamic Trailing Stops**:
+  - `STRUCTURE_HL_TRAIL`: Trails stop behind verified Higher Low swing supports.
+  - `CHANDELIER_ATR_TRAIL`: $\text{Highest Close} - (3.0 \times \text{ATR})$.
+- **Multibagger Runner Protection**: Holds remaining runner until structural invalidation.
+
+---
+
+## 8. Testing & Verification
 
 ```powershell
-# Run quantitative and forensic test suites
-.venv\Scripts\pytest.exe tests/test_sector_rotation.py tests/test_forensic.py tests/test_position_sizer.py -v
+# Run quantitative and structural test suites
+.venv\Scripts\pytest.exe tests/test_market_structure.py tests/test_volume_profile.py tests/test_multibagger.py tests/test_trade_lifecycle.py -v
 ```
