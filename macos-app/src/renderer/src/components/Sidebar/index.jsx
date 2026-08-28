@@ -96,7 +96,7 @@ export default function Sidebar() {
 
       {/* Quick Trading Tools */}
       <div className="px-3 py-2 border-t border-border/50 bg-panel/30">
-        <p className="text-[10px] uppercase font-ui tracking-wider text-muted mb-1.5 px-1">Quick Tools</p>
+        <p className="text-[10px] uppercase font-ui tracking-wider text-muted mb-1.5 px-1">Institutional Tools</p>
         <div className="grid grid-cols-2 gap-1 text-[11px] font-ui">
           <button
             onClick={() => useChatStore.getState().setDraft('brief')}
@@ -105,22 +105,34 @@ export default function Sidebar() {
             <span>🌅</span> Brief
           </button>
           <button
-            onClick={() => useChatStore.getState().setDraft('scan')}
+            onClick={() => useChatStore.getState().setDraft('funnel nifty_50')}
             className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-muted hover:text-text hover:bg-elevated text-left transition-colors cursor-pointer"
           >
-            <span>🔍</span> Scanner
+            <span>🎯</span> Funnel
+          </button>
+          <button
+            onClick={() => useChatStore.getState().setDraft('rrg')}
+            className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-muted hover:text-text hover:bg-elevated text-left transition-colors cursor-pointer"
+          >
+            <span>🌐</span> RRG Sector
+          </button>
+          <button
+            onClick={() => useChatStore.getState().setDraft('forensic RELIANCE')}
+            className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-muted hover:text-text hover:bg-elevated text-left transition-colors cursor-pointer"
+          >
+            <span>🛡️</span> Forensic
+          </button>
+          <button
+            onClick={() => useChatStore.getState().setDraft('size NIFTY 24000 23600')}
+            className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-muted hover:text-text hover:bg-elevated text-left transition-colors cursor-pointer"
+          >
+            <span>⚖️</span> Sizer
           </button>
           <button
             onClick={() => useChatStore.getState().setDraft('flows')}
             className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-muted hover:text-text hover:bg-elevated text-left transition-colors cursor-pointer"
           >
             <span>🌊</span> Flows
-          </button>
-          <button
-            onClick={() => useChatStore.getState().setDraft('payoff NIFTY')}
-            className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-muted hover:text-text hover:bg-elevated text-left transition-colors cursor-pointer"
-          >
-            <span>🎯</span> Payoff
           </button>
         </div>
       </div>

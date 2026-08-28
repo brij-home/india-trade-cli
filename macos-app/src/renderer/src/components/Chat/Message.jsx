@@ -30,6 +30,10 @@ import AuditCard          from '../Cards/AuditCard'
 import TelegramCard       from '../Cards/TelegramCard'
 import ProviderCard       from '../Cards/ProviderCard'
 import PayoffSimulatorCard from '../Cards/PayoffSimulatorCard'
+import RRGCard            from '../Cards/RRGCard'
+import ForensicCard       from '../Cards/ForensicCard'
+import PositionSizerCard  from '../Cards/PositionSizerCard'
+import FunnelCard         from '../Cards/FunnelCard'
 
 export default function Message({ message }) {
   const { role, text, cardType, data } = message
@@ -73,6 +77,14 @@ export default function Message({ message }) {
     case 'strategy':           return <StrategyCard data={data} />
     case 'payoff':
     case 'payoff_sim':         return <PayoffSimulatorCard initialSymbol={data?.symbol || 'NIFTY'} initialSpot={data?.spot_price || data?.last_price || 24000} />
+    case 'rrg':
+    case 'sector_rotation':    return <RRGCard data={data} />
+    case 'forensic':
+    case 'forensics':          return <ForensicCard data={data} />
+    case 'size':
+    case 'position_size':      return <PositionSizerCard data={data} />
+    case 'funnel':
+    case 'smart_funnel':       return <FunnelCard data={data} />
     case 'drift':              return <DriftCard data={data} />
     case 'pairs':              return <PairsCard data={data} />
     case 'memory':             return <MemoryCard data={data} />

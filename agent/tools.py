@@ -1353,6 +1353,135 @@ def build_registry() -> ToolRegistry:
         ).dcf_for_symbol(symbol, growth_rate, wacc),
     )
 
+    # ── Sector Rotation & Relative Strength (RRG) ────────────
+
+    reg.register(
+        name="get_sector_rotation_matrix",
+        description=(
+            "Get Relative Rotation Graph (RRG) coordinates for all major Indian sectors "
+            "(BANK, IT, PHARMA, AUTO, FMCG, METAL, REALTY, ENERGY, INFRA, PSU_BANK). "
+            "Returns RS-Ratio (trend), RS-Momentum (velocity), and quadrant "
+            "(LEADING, WEAKENING, LAGGING, IMPROVING) vs NIFTY 50 benchmark."
+        ),
+        parameters={"type": "object", "properties": {}},
+        fn=lambda: [
+            p.as_dict()
+            for p in __import__(
+                "analysis.sector_rotation", fromlist=["get_sector_rrg_matrix"]
+            ).get_sector_rrg_matrix()
+        ],
+    )
+
+    reg.register(
+        name="get_stock_sector_alignment",
+        description=(
+            "Get a stock's parent sector, its RRG rotation quadrant, and sector tailwind score (0-100). "
+            "Determines whether institutional sector rotation is a tailwind or headwind."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "symbol": {"type": "string", "description": "Stock symbol e.g. 'TATASTEEL', 'INFY'"},
+            },
+            "required": ["symbol"],
+        },
+        fn=lambda symbol: __import__(
+            "analysis.sector_rotation", fromlist=["get_stock_sector_alignment"]
+        ).get_stock_sector_alignment(symbol),
+    )
+
+    # ── Forensic Accounting & Quality Audit ───────────────────
+
+    reg.register(
+        name="audit_forensics",
+        description=(
+            "Perform institutional forensic accounting & corporate governance audit for an Indian stock. "
+            "Computes Beneish M-Score (earnings manipulation), Altman Z''-Score (credit distress), "
+            "Piotroski 9-point F-Score, promoter pledge levels, and accruals divergence."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "symbol": {"type": "string", "description": "Stock symbol e.g. 'RELIANCE', 'INFY'"},
+            },
+            "required": ["symbol"],
+        },
+        fn=lambda symbol: __import__(
+            "analysis.forensic", fromlist=["audit_forensics"]
+        ).audit_forensics(symbol).as_dict(),
+    )
+
+    # ── Macro Snapshots & Linkages ────────────────────────────
+
+    reg.register(
+        name="get_macro_snapshot",
+        description=(
+            "Get real-time global macro snapshot: USD/INR forex rate, Brent Crude oil price (USD/bbl), "
+            "Gold spot price (USD/oz), US 10-Year Treasury Yield (^TNX), and US Dollar Index (DXY)."
+        ),
+        parameters={"type": "object", "properties": {}},
+        fn=lambda: __import__(
+            "market.macro", fromlist=["get_macro_snapshot"]
+        ).get_macro_snapshot().__dict__,
+    )
+
+    reg.register(
+        name="get_stock_macro_linkages",
+        description=(
+            "Get sensitivity scores and impact assessment for a stock against live macro factors "
+            "(USD/INR, Crude oil, Gold, US 10Y Yields). E.g. IT benefits from USD/INR up; Paints hurt by Crude up."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "symbol": {"type": "string", "description": "Stock symbol e.g. 'INFY', 'ASIANPAINT'"},
+            },
+            "required": ["symbol"],
+        },
+        fn=lambda symbol: __import__(
+            "market.macro", fromlist=["get_stock_macro_linkages"]
+        ).get_stock_macro_linkages(symbol),
+    )
+
+    # ── Position Sizing & Risk-Parity ─────────────────────────
+
+    reg.register(
+        name="calculate_position_size",
+        description=(
+            "Calculate optimal position size based on institutional risk parameters. "
+            "Supports 'atr_volatility' (Risk-Parity), 'fixed_fractional' (stop distance), "
+            "and 'half_kelly' (growth formula). Automatically handles F&O lot sizes."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "symbol": {"type": "string", "description": "Stock symbol e.g. 'RELIANCE'"},
+                "entry_price": {"type": "number", "description": "Planned entry price"},
+                "stop_loss": {"type": "number", "description": "Technical stop-loss price"},
+                "capital": {"type": "number", "default": 100000.0, "description": "Total trading capital"},
+                "target_price": {"type": "number", "description": "Target profit price (optional)"},
+                "max_risk_pct": {"type": "number", "default": 1.5, "description": "Max account risk % (default 1.5%)"},
+                "sizing_model": {
+                    "type": "string",
+                    "enum": ["atr_volatility", "fixed_fractional", "half_kelly"],
+                    "default": "atr_volatility",
+                },
+            },
+            "required": ["symbol", "entry_price", "stop_loss"],
+        },
+        fn=lambda symbol, entry_price, stop_loss, capital=100000.0, target_price=None, max_risk_pct=1.5, sizing_model="atr_volatility": __import__(
+            "engine.position_sizer", fromlist=["calculate_position_size"]
+        ).calculate_position_size(
+            symbol=symbol,
+            entry_price=entry_price,
+            stop_loss=stop_loss,
+            capital=capital,
+            target_price=target_price,
+            max_risk_pct=max_risk_pct,
+            sizing_model=sizing_model,
+        ).as_dict(),
+    )
+
     # ── Tag all registered tools as read-only + concurrency-safe ──
     # Every tool in the base registry is a read/analyse tool — none place orders.
     # Destructive tools (execute_trade) are added separately by the harness.

@@ -168,10 +168,23 @@ function parseCommand(input) {
       }
       return { endpoint: '/skills/provider', body: {}, cardType: 'provider' }
     }
-    case 'pairs': {
-      const symA = args[0]?.toUpperCase() ?? 'RELIANCE'
-      const symB = args[1]?.toUpperCase() ?? 'TCS'
-      return { endpoint: '/skills/pairs', body: { stock_a: symA, stock_b: symB }, cardType: 'pairs' }
+    case 'rrg': case 'sector-rotation': case 'rotation': {
+      const sym = args[0]?.toUpperCase() ?? null
+      return { endpoint: '/skills/rrg', body: { symbol: sym }, cardType: 'rrg' }
+    }
+    case 'forensic': case 'forensics': case 'fa': {
+      const sym = (args[0] ?? 'RELIANCE').toUpperCase()
+      return { endpoint: '/skills/forensic', body: { symbol: sym }, cardType: 'forensic' }
+    }
+    case 'size': case 'position-size': case 'sizing': {
+      const sym = (args[0] ?? 'NIFTY').toUpperCase()
+      const entry = parseFloat(args[1]) || 24000
+      const sl = parseFloat(args[2]) || null
+      return { endpoint: '/skills/position_size', body: { symbol: sym, entry_price: entry, stop_loss: sl }, cardType: 'size' }
+    }
+    case 'funnel': case 'smart-funnel': case 'smartfunnel': {
+      const syms = args[0] || 'nifty_50'
+      return { endpoint: '/skills/funnel', body: { symbols: syms, top_n: 3 }, cardType: 'funnel' }
     }
 
     default:

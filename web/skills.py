@@ -2020,3 +2020,119 @@ async def skill_backtest_report(req: BacktestReportRequest):
         raise
     except Exception as e:
         raise _err(str(e))
+
+
+# ── RRG Sector Rotation Skill ─────────────────────────────────
+
+
+class RRGSkillRequest(BaseModel):
+    symbol: Optional[str] = None
+
+
+@router.post("/rrg")
+async def skill_rrg(req: RRGSkillRequest = RRGSkillRequest()):
+    """
+    Get Relative Rotation Graph (RRG) sector momentum matrix and stock alignment.
+    """
+    try:
+        from analysis.sector_rotation import get_sector_rrg_matrix, get_stock_sector_alignment
+
+        points = get_sector_rrg_matrix()
+        stock_align = None
+        if req.symbol:
+            stock_align = get_stock_sector_alignment(req.symbol)
+
+        return _ok(
+            {
+                "sectors": [p.as_dict() for p in points],
+                "leading_sectors": [p.sector for p in points if p.quadrant == "LEADING"],
+                "improving_sectors": [p.sector for p in points if p.quadrant == "IMPROVING"],
+                "stock_alignment": stock_align,
+            }
+        )
+    except Exception as e:
+        raise _err(str(e))
+
+
+# ── Forensic Accounting & Governance Skill ────────────────────
+
+
+class ForensicSkillRequest(BaseModel):
+    symbol: str
+
+
+@router.post("/forensic")
+async def skill_forensic(req: ForensicSkillRequest):
+    """
+    Get Beneish M-Score, Altman Z''-Score, Piotroski 9-Point F-Score, and governance audit.
+    """
+    try:
+        from analysis.forensic import audit_forensics
+
+        res = audit_forensics(req.symbol)
+        return _ok(res.as_dict())
+    except Exception as e:
+        raise _err(str(e))
+
+
+# ── Position Sizing & Risk-Parity Skill ───────────────────────
+
+
+class PositionSizeSkillRequest(BaseModel):
+    symbol: str = "NIFTY"
+    entry_price: float = 100.0
+    stop_loss: Optional[float] = None
+    capital: float = 100000.0
+    target_price: Optional[float] = None
+    max_risk_pct: float = 1.5
+    sizing_model: str = "atr_volatility"
+    is_fno: bool = False
+
+
+@router.post("/position_size")
+async def skill_position_size(req: PositionSizeSkillRequest):
+    """
+    Calculate volatility risk-parity, half-kelly, or fixed fractional position sizing.
+    """
+    try:
+        from engine.position_sizer import calculate_position_size
+
+        sl = req.stop_loss if req.stop_loss is not None else round(req.entry_price * 0.98, 2)
+        res = calculate_position_size(
+            symbol=req.symbol,
+            entry_price=req.entry_price,
+            stop_loss=sl,
+            capital=req.capital,
+            target_price=req.target_price,
+            max_risk_pct=req.max_risk_pct,
+            sizing_model=req.sizing_model,
+            is_fno=req.is_fno,
+        )
+        return _ok(res.as_dict())
+    except Exception as e:
+        raise _err(str(e))
+
+
+# ── Smart Funnel Screening Skill ──────────────────────────────
+
+
+class FunnelSkillRequest(BaseModel):
+    symbols: list[str] | str = "nifty_50"
+    exchange: str = "NSE"
+    top_n: int = 3
+
+
+@router.post("/funnel")
+async def skill_funnel(req: FunnelSkillRequest):
+    """
+    Execute 3-stage Smart Funnel screening + multi-agent debate synthesis.
+    """
+    try:
+        from agent.smart_funnel import SmartFunnel
+
+        funnel = SmartFunnel(verbose=False)
+        result = funnel.run(symbols=req.symbols, exchange=req.exchange, top_n=req.top_n)
+        return _ok(result.as_dict())
+    except Exception as e:
+        raise _err(str(e))
+

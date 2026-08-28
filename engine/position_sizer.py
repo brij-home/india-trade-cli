@@ -1,353 +1,207 @@
 """
 engine/position_sizer.py
 ────────────────────────
-Volatility-adjusted position sizing with portfolio correlation matrix.
+Institutional position sizing & risk parity calculation engine.
 
-Combines:
-  - Kelly criterion (half-Kelly cap for safety)
-  - ATR-based volatility normalization
-  - Portfolio correlation penalty (reduce size when highly correlated with existing holds)
-  - Hard capital cap per position
+Supports three quantitative sizing methodologies:
+  1. ATR Volatility Parity (`atr_volatility`): Equalizes dollar risk contribution based on stock volatility.
+  2. Fixed Fractional Risk (`fixed_fractional`): Positions sized strictly on technical stop-loss distance.
+  3. Half-Kelly Criterion (`half_kelly`): Optimal growth bet sizing based on empirical win rate & payoff ratio.
 
-Usage:
-    from engine.position_sizer import VolatilityAdjustedSizer, compute_portfolio_var
-
-    sizer = VolatilityAdjustedSizer(total_capital=500_000)
-    result = sizer.size_position(
-        symbol="RELIANCE",
-        win_rate=0.60,
-        avg_win_pct=0.05,
-        avg_loss_pct=0.03,
-        atr_pct=0.018,
-        existing_symbols=["INFY", "TCS"],
-    )
-    print(result.recommended_qty, result.rationale)
+Includes Indian market lot-size rounding for F&O underlying derivatives.
 """
 
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass
-
-import numpy as np
-import pandas as pd
-
-from market.history import get_ohlcv
+from typing import Any, Optional
 
 
 @dataclass
 class PositionSizeResult:
-    """Output of VolatilityAdjustedSizer.size_position()."""
+    """Institutional position sizing output."""
 
     symbol: str
-    recommended_qty: int  # final integer lots or shares
-    recommended_value: float  # INR value of position (qty × price_per_lot)
-    position_pct: float  # fraction of total_capital (0–max_position_pct)
-    volatility_scalar: float  # 1.0 = no adjustment; <1 = reduced for high vol
-    correlation_penalty: float  # 0–1; 0 = no penalty
-    kelly_fraction: float  # half-Kelly fraction applied
-    rationale: str  # human-readable explanation
+    shares: int
+    lots: int
+    lot_size: int
+    capital_allocated: float
+    capital_pct: float
+    risk_amount: float
+    risk_pct: float
+    entry_price: float
+    stop_loss: float
+    target_price: float
+    r_multiple: float
+    sizing_model: str
+    notes: str = ""
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "symbol": self.symbol,
+            "shares": self.shares,
+            "lots": self.lots,
+            "lot_size": self.lot_size,
+            "capital_allocated": round(self.capital_allocated, 2),
+            "capital_pct": round(self.capital_pct, 2),
+            "risk_amount": round(self.risk_amount, 2),
+            "risk_pct": round(self.risk_pct, 2),
+            "entry_price": round(self.entry_price, 2),
+            "stop_loss": round(self.stop_loss, 2),
+            "target_price": round(self.target_price, 2),
+            "r_multiple": round(self.r_multiple, 2),
+            "sizing_model": self.sizing_model,
+            "notes": self.notes,
+        }
 
 
-class VolatilityAdjustedSizer:
+# Standard F&O Lot Sizes for Indian Instruments
+_F_AND_O_LOT_SIZES: dict[str, int] = {
+    "NIFTY": 25,
+    "BANKNIFTY": 15,
+    "FINNIFTY": 25,
+    "MIDCPNIFTY": 50,
+    "RELIANCE": 250,
+    "TCS": 175,
+    "INFY": 400,
+    "HDFCBANK": 550,
+    "ICICIBANK": 700,
+    "SBIN": 750,
+    "TATAMOTORS": 550,
+    "MARUTI": 50,
+    "ITC": 1600,
+    "TATASTEEL": 5500,
+    "HINDALCO": 1400,
+    "BHARTIARTL": 475,
+    "LT": 150,
+    "AXISBANK": 625,
+    "KOTAKBANK": 400,
+}
+
+
+def get_lot_size(symbol: str) -> int:
+    """Get the standard lot size for a stock/index (1 for cash equity)."""
+    clean = symbol.upper().replace(".NS", "").replace("NSE:", "").strip()
+    return _F_AND_O_LOT_SIZES.get(clean, 1)
+
+
+def calculate_position_size(
+    symbol: str,
+    entry_price: float,
+    stop_loss: float,
+    capital: float = 100000.0,
+    target_price: Optional[float] = None,
+    max_risk_pct: float = 1.5,  # Risk max 1.5% of total capital
+    max_capital_pct: Optional[float] = 20.0,  # Max % capital in single stock
+    atr: Optional[float] = None,
+    sizing_model: str = "atr_volatility",
+    win_rate: float = 0.55,
+    profit_factor: float = 1.8,
+    is_fno: bool = False,
+) -> PositionSizeResult:
     """
-    Position sizing that accounts for:
-    1. Asset volatility (ATR as % of price)
-    2. Portfolio correlation (reduce size if new position highly correlated with existing)
-    3. Kelly criterion (capped at half-Kelly for safety)
-    4. Capital limits (max pct per position)
-    """
-
-    def __init__(
-        self,
-        total_capital: float,
-        max_position_pct: float = 0.10,
-        target_risk_pct: float = 0.01,
-    ) -> None:
-        """
-        total_capital:    total trading capital in INR
-        max_position_pct: max single position as fraction of capital (default 10%)
-        target_risk_pct:  target risk per trade as fraction of capital (default 1%)
-        """
-        self.total_capital = total_capital
-        self.max_position_pct = max_position_pct
-        self.target_risk_pct = target_risk_pct
-
-    # ── Public API ────────────────────────────────────────────────
-
-    def compute_correlation_matrix(
-        self,
-        symbols: list[str],
-        period: str = "3mo",
-    ) -> pd.DataFrame:
-        """
-        Fetch daily returns for each symbol and compute Pearson correlation matrix.
-
-        Returns:
-            pd.DataFrame with symbols as both index and columns.
-            Diagonal = 1.0, off-diagonal = Pearson r ∈ [-1, 1].
-        """
-        period_days = _period_to_days(period)
-        returns_dict: dict[str, pd.Series] = {}
-
-        for sym in symbols:
-            df = get_ohlcv(sym, days=period_days)
-            if df is None or df.empty or len(df) < 10:
-                continue
-            ret = df["close"].pct_change().dropna()
-            returns_dict[sym] = ret
-
-        if len(returns_dict) < 2:
-            # Return identity matrix with whatever symbols we have
-            idx = list(returns_dict.keys()) or symbols
-            return pd.DataFrame(np.eye(len(idx)), index=idx, columns=idx)
-
-        # Align on common dates
-        returns_df = pd.DataFrame(returns_dict).dropna()
-        corr = returns_df.corr(method="pearson")
-
-        # Fill any missing symbols with a row/col of zeros (off-diagonal) + 1 (diagonal)
-        for sym in symbols:
-            if sym not in corr.columns:
-                corr[sym] = 0.0
-                corr.loc[sym] = 0.0
-                corr.loc[sym, sym] = 1.0
-
-        return corr.loc[symbols, symbols]
-
-    def size_position(
-        self,
-        symbol: str,
-        win_rate: float,
-        avg_win_pct: float,
-        avg_loss_pct: float,
-        atr_pct: float,
-        existing_symbols: list[str] | None = None,
-        lot_size: int = 1,
-        price_per_lot: float = 1.0,
-    ) -> PositionSizeResult:
-        """
-        Compute a volatility-adjusted, correlation-aware position size.
-
-        Steps:
-        1. Kelly fraction  = win_rate / avg_loss_pct − (1−win_rate) / avg_win_pct
-           Cap at half-Kelly (÷2).
-        2. Volatility scalar = target_risk_pct / atr_pct, clamped [0.25, 2.0].
-           Zero ATR is treated as very low → scalar capped at 2.0.
-        3. Correlation penalty: fetch correlations with existing_symbols,
-           penalty = max_pairwise_corr × 0.5  (range [0, 0.5] given corr ∈ [-1,1]).
-        4. Final pct = kelly × vol_scalar × (1 − penalty),  clamped [0, max_position_pct].
-        5. qty = floor(final_pct × total_capital / price_per_lot), rounded down to lot_size.
-        """
-
-        # ── Step 1: Kelly ─────────────────────────────────────────
-        raw_kelly = _compute_kelly(win_rate, avg_win_pct, avg_loss_pct)
-        half_kelly = max(raw_kelly / 2.0, 0.0)  # negative Kelly → 0 position
-
-        if half_kelly <= 0:
-            return PositionSizeResult(
-                symbol=symbol,
-                recommended_qty=0,
-                recommended_value=0.0,
-                position_pct=0.0,
-                volatility_scalar=_vol_scalar(atr_pct, self.target_risk_pct),
-                correlation_penalty=0.0,
-                kelly_fraction=half_kelly,
-                rationale=(f"Kelly fraction non-positive ({raw_kelly:.4f}); no edge — skip trade."),
-            )
-
-        # ── Step 2: Volatility scalar ─────────────────────────────
-        vol_scalar = _vol_scalar(atr_pct, self.target_risk_pct)
-
-        # ── Step 3: Correlation penalty ───────────────────────────
-        corr_penalty = 0.0
-        if existing_symbols:
-            all_syms = [symbol] + existing_symbols
-            try:
-                corr_matrix = self.compute_correlation_matrix(all_syms)
-                # Find max |correlation| between new symbol and any existing symbol
-                if symbol in corr_matrix.columns:
-                    corr_row = corr_matrix.loc[symbol, existing_symbols]
-                    # Only use valid (non-NaN) entries
-                    valid_corr = corr_row.dropna()
-                    if not valid_corr.empty:
-                        max_corr = float(valid_corr.abs().max())
-                        corr_penalty = max_corr * 0.5
-            except Exception:
-                pass  # network failure or bad data → no penalty
-
-        # ── Step 4: Final position fraction ───────────────────────
-        final_pct = half_kelly * vol_scalar * (1.0 - corr_penalty)
-        final_pct = min(final_pct, self.max_position_pct)
-        final_pct = max(final_pct, 0.0)
-
-        # ── Step 5: Quantity ──────────────────────────────────────
-        if price_per_lot <= 0:
-            price_per_lot = 1.0
-
-        raw_qty = math.floor(final_pct * self.total_capital / price_per_lot)
-        # Round down to nearest lot
-        if lot_size > 1:
-            raw_qty = (raw_qty // lot_size) * lot_size
-
-        recommended_value = raw_qty * price_per_lot
-
-        rationale = (
-            f"Kelly(raw)={raw_kelly:.4f} → half-Kelly={half_kelly:.4f}; "
-            f"vol_scalar={vol_scalar:.3f} (atr_pct={atr_pct:.4f}); "
-            f"corr_penalty={corr_penalty:.3f}; "
-            f"final_pct={final_pct:.4f} ({final_pct * 100:.2f}% of capital); "
-            f"qty={raw_qty} × lot_size={lot_size}."
-        )
-
-        return PositionSizeResult(
-            symbol=symbol,
-            recommended_qty=raw_qty,
-            recommended_value=round(recommended_value, 2),
-            position_pct=final_pct,
-            volatility_scalar=vol_scalar,
-            correlation_penalty=corr_penalty,
-            kelly_fraction=half_kelly,
-            rationale=rationale,
-        )
-
-
-# ── Portfolio VaR ─────────────────────────────────────────────────
-
-
-def compute_portfolio_var(
-    symbols: list[str],
-    weights: list[float],
-    period: str = "1y",
-    confidence: float = 0.95,
-) -> dict:
-    """
-    Compute portfolio Value-at-Risk using historical simulation.
+    Calculate optimal position size based on institutional risk parameters.
 
     Args:
-        symbols:    List of trading symbols.
-        weights:    Portfolio weights (must sum to ≈ 1.0; will be normalised).
-        period:     Lookback period string, e.g. "1y", "6mo", "3mo".
-        confidence: VaR confidence level (default 0.95 = 95%).
-
-    Returns:
-        dict with keys:
-            var_1day         – 1-day VaR as a fraction of portfolio value
-            var_10day        – 10-day VaR (= var_1day × √10)
-            cvar             – Conditional VaR (expected shortfall) at 1-day
-            volatility_annual – Annualised portfolio volatility (fraction)
+        symbol: Ticker symbol (e.g. INFY, NIFTY)
+        entry_price: Current market price or limit entry
+        stop_loss: Technical stop-loss price
+        capital: Total trading account capital
+        target_price: Expected profit target (defaults to 2R)
+        max_risk_pct: Max percentage of portfolio at risk (e.g. 1.5%)
+        max_capital_pct: Hard ceiling for total capital allocated to this position
+        atr: 14-day Average True Range (if available)
+        sizing_model: "atr_volatility" | "fixed_fractional" | "half_kelly"
+        win_rate: Historical win rate for Kelly calculation
+        profit_factor: Historical win/loss ratio for Kelly calculation
+        is_fno: True if trading F&O derivative contracts with lot multipliers
     """
-    period_days = _period_to_days(period)
-
-    # Collect return series
-    returns_dict: dict[str, pd.Series] = {}
-    for sym in symbols:
-        df = get_ohlcv(sym, days=period_days)
-        if df is not None and not df.empty and len(df) >= 10:
-            ret = df["close"].pct_change().dropna()
-            returns_dict[sym] = ret
-
-    if not returns_dict:
-        return {
-            "var_1day": 0.0,
-            "var_10day": 0.0,
-            "cvar": 0.0,
-            "volatility_annual": 0.0,
-        }
-
-    # Align symbols present in returns_dict with matching weights
-    valid_syms = [s for s in symbols if s in returns_dict]
-    raw_weights = np.array([weights[symbols.index(s)] for s in valid_syms], dtype=float)
-    if raw_weights.sum() == 0:
-        raw_weights = np.ones(len(valid_syms))
-    norm_weights = raw_weights / raw_weights.sum()
-
-    # Align on common dates
-    returns_df = pd.DataFrame({s: returns_dict[s] for s in valid_syms}).dropna()
-
-    if returns_df.empty:
-        return {
-            "var_1day": 0.0,
-            "var_10day": 0.0,
-            "cvar": 0.0,
-            "volatility_annual": 0.0,
-        }
-
-    # Portfolio returns
-    port_returns = returns_df.values @ norm_weights  # shape (T,)
-
-    # Historical simulation VaR
-    pct_threshold = (1.0 - confidence) * 100  # e.g. 5 for 95%
-    var_1day = float(abs(np.percentile(port_returns, pct_threshold)))
-    var_10day = var_1day * math.sqrt(10)
-
-    # CVaR (Expected Shortfall)
-    tail_mask = port_returns <= -var_1day
-    if tail_mask.any():
-        cvar = float(abs(np.mean(port_returns[tail_mask])))
+    clean_sym = symbol.upper().replace(".NS", "").replace("NSE:", "").strip()
+    
+    # Auto-detect indices as F&O derivatives
+    if is_fno or clean_sym in ("NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY"):
+        lot_size = get_lot_size(clean_sym)
     else:
-        cvar = var_1day * 1.2  # fallback estimate
+        lot_size = 1
 
-    # Annualised volatility
-    daily_vol = float(np.std(port_returns, ddof=1))
-    volatility_annual = daily_vol * math.sqrt(252)
+    if entry_price <= 0:
+        entry_price = 100.0
 
-    return {
-        "var_1day": round(var_1day, 6),
-        "var_10day": round(var_10day, 6),
-        "cvar": round(cvar, 6),
-        "volatility_annual": round(volatility_annual, 6),
-    }
+    # Stop distance calculation
+    if stop_loss <= 0 or stop_loss >= entry_price:
+        stop_loss = round(entry_price * 0.98, 2)
 
+    stop_distance = abs(entry_price - stop_loss)
+    if stop_distance <= 0:
+        stop_distance = entry_price * 0.01
 
-# ── Internal helpers ──────────────────────────────────────────────
+    # Default 2R target if omitted
+    if target_price is None or target_price <= entry_price:
+        target_price = round(entry_price + (stop_distance * 2.0), 2)
 
+    r_multiple = (target_price - entry_price) / stop_distance if stop_distance > 0 else 2.0
 
-def _compute_kelly(
-    win_rate: float,
-    avg_win_pct: float,
-    avg_loss_pct: float,
-) -> float:
-    """
-    Kelly criterion:
-        f = win_rate / avg_loss_pct − (1 − win_rate) / avg_win_pct
+    # Dollar risk budget
+    risk_budget = capital * (max_risk_pct / 100.0)
 
-    Protects against division by zero: returns a large negative number if
-    avg_win_pct or avg_loss_pct are zero/negative (indicating no edge).
-    """
-    if avg_win_pct <= 0 or avg_loss_pct <= 0:
-        return -1.0  # no edge
-    win_term = win_rate / avg_loss_pct
-    loss_term = (1.0 - win_rate) / avg_win_pct
-    return win_term - loss_term
+    # 1. Compute Raw Shares based on chosen model
+    if sizing_model == "atr_volatility":
+        effective_atr = atr if atr and atr > 0 else (stop_distance * 0.8)
+        vol_stop = max(stop_distance, effective_atr * 1.5)
+        raw_shares = int(risk_budget / vol_stop)
+        notes = f"Sized using ATR Volatility Parity ({vol_stop:.1f} pts risk per share)."
 
+    elif sizing_model == "half_kelly":
+        b = max(1.0, profit_factor)
+        p = max(0.1, min(0.9, win_rate))
+        full_kelly = (p * b - (1.0 - p)) / b
+        cap_fraction = (max_capital_pct / 100.0) if max_capital_pct else 0.20
+        half_kelly_frac = max(0.02, min(cap_fraction, full_kelly * 0.5))
+        allocated = capital * half_kelly_frac
+        raw_shares = int(allocated / entry_price)
+        notes = f"Sized via Half-Kelly ({half_kelly_frac * 100:.1f}% capital allocation for {p * 100:.0f}% win-rate)."
 
-def _vol_scalar(atr_pct: float, target_risk_pct: float) -> float:
-    """
-    Volatility scalar = target_risk_pct / atr_pct,  clamped [0.25, 2.0].
-    Zero or very small ATR → scalar pinned at 2.0 (upper cap).
-    """
-    if atr_pct <= 0:
-        return 2.0
-    raw = target_risk_pct / atr_pct
-    return float(np.clip(raw, 0.25, 2.0))
+    else:  # fixed_fractional
+        raw_shares = int(risk_budget / stop_distance)
+        notes = f"Sized strictly on stop distance ({stop_distance:.2f} pts) at {max_risk_pct}% risk."
 
+    # 2. Apply Capital Ceiling if configured
+    if max_capital_pct is not None and max_capital_pct > 0:
+        max_capital_budget = capital * (max_capital_pct / 100.0)
+        capital_limited_shares = int(max_capital_budget / entry_price)
+        shares = min(raw_shares, capital_limited_shares)
+    else:
+        shares = raw_shares
 
-def _period_to_days(period: str) -> int:
-    """Convert a period string (e.g. '3mo', '1y', '6mo') to calendar days."""
-    period = period.lower().strip()
-    if period.endswith("y"):
-        return int(period[:-1]) * 365
-    if period.endswith("mo"):
-        return int(period[:-2]) * 30
-    if period.endswith("m"):
-        # ambiguous — treat as months if >= 2 digits else years
-        val = int(period[:-1])
-        return val * 30
-    if period.endswith("d"):
-        return int(period[:-1])
-    # Default: treat as integer days
-    try:
-        return int(period)
-    except ValueError:
-        return 365
+    # 3. Lot-size rounding if derivative
+    if lot_size > 1:
+        lots = shares // lot_size
+        shares = lots * lot_size
+        if shares == 0 and capital >= (entry_price * lot_size):
+            lots = 1
+            shares = lot_size
+    else:
+        shares = max(1, shares)
+        lots = 1
+
+    capital_allocated = shares * entry_price
+    capital_pct = (capital_allocated / capital) * 100.0 if capital > 0 else 0.0
+    actual_risk = shares * stop_distance
+    actual_risk_pct = (actual_risk / capital) * 100.0 if capital > 0 else 0.0
+
+    return PositionSizeResult(
+        symbol=clean_sym,
+        shares=shares,
+        lots=lots,
+        lot_size=lot_size,
+        capital_allocated=capital_allocated,
+        capital_pct=capital_pct,
+        risk_amount=actual_risk,
+        risk_pct=actual_risk_pct,
+        entry_price=entry_price,
+        stop_loss=stop_loss,
+        target_price=target_price,
+        r_multiple=r_multiple,
+        sizing_model=sizing_model,
+        notes=notes,
+    )

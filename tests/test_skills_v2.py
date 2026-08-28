@@ -653,3 +653,80 @@ class TestAnalyzeFollowup:
                 },
             )
         assert r.status_code == 500
+
+
+# ── Test RRG, Forensic, Position Size, and Funnel Skills ───────
+
+
+class TestSkillRRGAndForensics:
+    def test_skill_rrg_returns_sectors(self, client):
+        r = client.post("/skills/rrg", json={"symbol": "INFY"})
+        assert r.status_code == 200
+        data = r.json()
+        assert data["status"] == "ok"
+        res = data["data"]
+        assert "sectors" in res
+        assert len(res["sectors"]) >= 5
+        assert "stock_alignment" in res
+        if res["stock_alignment"]:
+            assert res["stock_alignment"]["symbol"] == "INFY"
+
+    def test_skill_forensic_returns_audit(self, client):
+        r = client.post("/skills/forensic", json={"symbol": "RELIANCE"})
+        assert r.status_code == 200
+        data = r.json()
+        assert data["status"] == "ok"
+        res = data["data"]
+        assert res["symbol"] == "RELIANCE"
+        assert "beneish_m_score" in res
+        assert "altman_z_score" in res
+        assert "piotroski_f_score" in res
+        assert "quality_rating" in res
+
+    def test_skill_position_size_calculates(self, client):
+        r = client.post(
+            "/skills/position_size",
+            json={
+                "symbol": "INFY",
+                "entry_price": 1500,
+                "stop_loss": 1470,
+                "capital": 200000,
+                "max_risk_pct": 1.5,
+                "sizing_model": "atr_volatility",
+                "is_fno": False,
+            },
+        )
+        assert r.status_code == 200
+        data = r.json()
+        assert data["status"] == "ok"
+        res = data["data"]
+        assert res["symbol"] == "INFY"
+        assert res["shares"] > 0
+        assert res["capital_allocated"] <= 200000
+
+    def test_skill_funnel_runs(self, client):
+        from agent.smart_funnel import SmartFunnelResult, PreFilterReport
+
+        fake_res = SmartFunnelResult(
+            total_screened=2,
+            qualified_count=1,
+            filtered_count=1,
+            pre_filter_reports=[
+                PreFilterReport(symbol="TCS", score=82.0, qualified=True, pass_reason="High quality"),
+                PreFilterReport(symbol="XYZ", score=40.0, qualified=False, rejection_reason="Low momentum"),
+            ],
+            qualified_symbols=["TCS"],
+            trade_plans=[],
+            elapsed_sec=0.2,
+        )
+        with patch.object(
+            __import__("agent.smart_funnel", fromlist=["SmartFunnel"]).SmartFunnel,
+            "run",
+            return_value=fake_res,
+        ):
+            r = client.post("/skills/funnel", json={"symbols": ["TCS", "XYZ"], "top_n": 2})
+            assert r.status_code == 200
+            data = r.json()
+            assert data["status"] == "ok"
+            assert data["data"]["qualified_count"] == 1
+

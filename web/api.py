@@ -1762,6 +1762,72 @@ async def api_portfolio(request: Request):
     }
 
 
+# ── Institutional Analysis & Quant Endpoints ─────────────────────
+
+@app.get("/api/v1/market/rrg", tags=["Analysis"])
+async def get_market_rrg():
+    """
+    Get Relative Rotation Graph (RRG) sector momentum matrix for all NSE sectors.
+    """
+    try:
+        from analysis.sector_rotation import get_sector_rrg_matrix
+
+        points = get_sector_rrg_matrix()
+        return {
+            "status": "success",
+            "sectors": [p.as_dict() for p in points],
+            "leading_sectors": [p.sector for p in points if p.quadrant == "LEADING"],
+            "improving_sectors": [p.sector for p in points if p.quadrant == "IMPROVING"],
+        }
+    except Exception as exc:
+        raise _HTTPException(status_code=500, detail=str(exc))
+
+
+@app.get("/api/v1/analysis/forensics/{symbol}", tags=["Analysis"])
+async def get_forensic_audit(symbol: str):
+    """
+    Get forensic accounting quality, Beneish M-Score, Altman Z''-Score, and governance audit.
+    """
+    try:
+        from analysis.forensic import audit_forensics
+
+        result = audit_forensics(symbol)
+        return {"status": "success", "data": result.as_dict()}
+    except Exception as exc:
+        raise _HTTPException(status_code=500, detail=str(exc))
+
+
+@app.post("/api/v1/tools/position-size", tags=["Tools"])
+async def post_position_sizing(req: _Request):
+    """
+    Calculate volatility risk-parity, half-kelly, or fixed fractional position sizing.
+    """
+    try:
+        body = await req.json()
+        symbol = body.get("symbol", "NIFTY")
+        entry_price = float(body.get("entry_price", 100.0))
+        stop_loss = float(body.get("stop_loss", entry_price * 0.98))
+        capital = float(body.get("capital", 100000.0))
+        target_price = float(body["target_price"]) if body.get("target_price") else None
+        max_risk_pct = float(body.get("max_risk_pct", 1.5))
+        sizing_model = body.get("sizing_model", "atr_volatility")
+
+        from engine.position_sizer import calculate_position_size
+
+        res = calculate_position_size(
+            symbol=symbol,
+            entry_price=entry_price,
+            stop_loss=stop_loss,
+            capital=capital,
+            target_price=target_price,
+            max_risk_pct=max_risk_pct,
+            sizing_model=sizing_model,
+        )
+        return {"status": "success", "data": res.as_dict()}
+    except Exception as exc:
+        raise _HTTPException(status_code=400, detail=str(exc))
+
+
 # ── SSE Streaming ─────────────────────────────────────────────────
 
 from web.sse import event_bus as _event_bus

@@ -18,14 +18,18 @@ const POPULAR_SYMBOLS = [
 ]
 
 const QUICK_ACTIONS = [
-  { label: 'Morning Market Brief', cmd: 'brief', icon: '🌅', cat: 'Intelligence' },
-  { label: 'FII / DII Institutional Flows', cmd: 'flows', icon: '🌊', cat: 'Intelligence' },
-  { label: 'Live Market Scanner & Sector Heatmap', cmd: 'scan', icon: '🔍', cat: 'Screening' },
+  { label: 'Morning Market Brief & Macro Posture', cmd: 'brief', icon: '🌅', cat: 'Intelligence' },
+  { label: 'Smart Funnel Multi-Agent Screening (NIFTY 50)', cmd: 'funnel nifty_50', icon: '🎯', cat: 'Screening' },
+  { label: 'Sector Relative Rotation Graph (RRG Matrix)', cmd: 'rrg', icon: '🌐', cat: 'Quant' },
+  { label: 'Forensic Accounting & Governance Audit (RELIANCE)', cmd: 'forensic RELIANCE', icon: '🛡️', cat: 'Forensic' },
+  { label: 'Volatility Risk-Parity & Position Sizer (NIFTY)', cmd: 'size NIFTY 24000 23600', icon: '⚖️', cat: 'Risk' },
+  { label: 'FII / DII Institutional Flows & Signals', cmd: 'flows', icon: '🌊', cat: 'Intelligence' },
   { label: 'Options Open Interest Profile (NIFTY)', cmd: 'oi NIFTY', icon: '📊', cat: 'Options' },
-  { label: 'Multi-Leg Strategy Payoff Simulator', cmd: 'strategy NIFTY', icon: '🎯', cat: 'Options' },
-  { label: 'Institutional Risk & Portfolio Report', cmd: 'risk-report', icon: '🛡️', cat: 'Risk' },
-  { label: 'View Active Holdings & Greeks', cmd: 'holdings', icon: '💼', cat: 'Portfolio' },
-  { label: 'Backtest RSI Strategy (RELIANCE)', cmd: 'backtest RELIANCE rsi', icon: '🧪', cat: 'Quant' },
+  { label: 'Multi-Leg Strategy Payoff Simulator', cmd: 'payoff NIFTY', icon: '🎯', cat: 'Options' },
+  { label: 'Live Market Scanner & Heatmap', cmd: 'scan', icon: '🔍', cat: 'Screening' },
+  { label: 'Institutional Risk & Greeks Report', cmd: 'risk-report', icon: '🛡️', cat: 'Risk' },
+  { label: 'View Active Holdings & Portfolio Margin', cmd: 'holdings', icon: '💼', cat: 'Portfolio' },
+  { label: 'Backtest Strategy (RELIANCE rsi)', cmd: 'backtest RELIANCE rsi', icon: '🧪', cat: 'Quant' },
 ]
 
 export default function CommandPalette({ isOpen, onClose, onOpenOrderTicket }) {

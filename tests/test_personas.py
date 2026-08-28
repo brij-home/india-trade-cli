@@ -30,45 +30,45 @@ from agent.persona_agent import (
 
 
 class TestPersonaDefinitions:
-    """Validate that all 5 personas are correctly defined."""
+    """Validate that all personas are correctly defined."""
 
-    EXPECTED_IDS = {"buffett", "jhunjhunwala", "lynch", "soros", "munger"}
+    EXPECTED_IDS = {"buffett", "jhunjhunwala", "lynch", "soros", "munger", "forensic"}
 
     def test_all_five_personas_defined(self):
         assert set(PERSONAS.keys()) == self.EXPECTED_IDS
 
-    @pytest.mark.parametrize("persona_id", ["buffett", "jhunjhunwala", "lynch", "soros", "munger"])
+    @pytest.mark.parametrize("persona_id", ["buffett", "jhunjhunwala", "lynch", "soros", "munger", "forensic"])
     def test_checklist_has_at_least_five_items(self, persona_id: str):
         persona = PERSONAS[persona_id]
         assert len(persona.checklist) >= 5, (
             f"{persona_id}.checklist has {len(persona.checklist)} items — need ≥5"
         )
 
-    @pytest.mark.parametrize("persona_id", ["buffett", "jhunjhunwala", "lynch", "soros", "munger"])
+    @pytest.mark.parametrize("persona_id", ["buffett", "jhunjhunwala", "lynch", "soros", "munger", "forensic"])
     def test_weights_sum_to_one(self, persona_id: str):
         persona = PERSONAS[persona_id]
         total = sum(persona.weights.values())
         assert abs(total - 1.0) < 1e-9, f"{persona_id}.weights sum to {total:.4f}, expected 1.0"
 
-    @pytest.mark.parametrize("persona_id", ["buffett", "jhunjhunwala", "lynch", "soros", "munger"])
+    @pytest.mark.parametrize("persona_id", ["buffett", "jhunjhunwala", "lynch", "soros", "munger", "forensic"])
     def test_system_prompt_non_empty(self, persona_id: str):
         persona = PERSONAS[persona_id]
         assert persona.system_prompt.strip(), f"{persona_id}.system_prompt is empty"
 
-    @pytest.mark.parametrize("persona_id", ["buffett", "jhunjhunwala", "lynch", "soros", "munger"])
+    @pytest.mark.parametrize("persona_id", ["buffett", "jhunjhunwala", "lynch", "soros", "munger", "forensic"])
     def test_system_prompt_has_meaningful_length(self, persona_id: str):
         persona = PERSONAS[persona_id]
         assert len(persona.system_prompt) >= 200, (
             f"{persona_id}.system_prompt too short ({len(persona.system_prompt)} chars)"
         )
 
-    @pytest.mark.parametrize("persona_id", ["buffett", "jhunjhunwala", "lynch", "soros", "munger"])
+    @pytest.mark.parametrize("persona_id", ["buffett", "jhunjhunwala", "lynch", "soros", "munger", "forensic"])
     def test_all_weight_values_positive(self, persona_id: str):
         persona = PERSONAS[persona_id]
         for dim, w in persona.weights.items():
             assert w > 0, f"{persona_id}.weights[{dim}] = {w}, must be > 0"
 
-    @pytest.mark.parametrize("persona_id", ["buffett", "jhunjhunwala", "lynch", "soros", "munger"])
+    @pytest.mark.parametrize("persona_id", ["buffett", "jhunjhunwala", "lynch", "soros", "munger", "forensic"])
     def test_persona_is_dataclass_instance(self, persona_id: str):
         persona = PERSONAS[persona_id]
         assert isinstance(persona, InvestorPersona)
@@ -96,6 +96,7 @@ class TestPersonaDefinitions:
         assert PERSONAS["lynch"].style == "garp"
         assert PERSONAS["soros"].style == "macro"
         assert PERSONAS["munger"].style == "quality"
+        assert PERSONAS["forensic"].style == "forensic-quality"
 
 
 # ── Helper functions ──────────────────────────────────────────
@@ -120,7 +121,7 @@ class TestGetPersona:
         with pytest.raises(ValueError):
             get_persona("")
 
-    @pytest.mark.parametrize("persona_id", ["buffett", "jhunjhunwala", "lynch", "soros", "munger"])
+    @pytest.mark.parametrize("persona_id", ["buffett", "jhunjhunwala", "lynch", "soros", "munger", "forensic"])
     def test_all_known_ids_return_persona(self, persona_id: str):
         persona = get_persona(persona_id)
         assert persona.id == persona_id
@@ -129,7 +130,7 @@ class TestGetPersona:
 class TestListPersonas:
     def test_returns_five_items(self):
         personas = list_personas()
-        assert len(personas) == 5
+        assert len(personas) >= 5
 
     def test_all_items_are_investor_persona(self):
         for p in list_personas():

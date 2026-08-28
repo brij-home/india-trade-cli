@@ -133,6 +133,10 @@ class SmartFunnelResult:
     is_fallback_selection: bool = False
     macro_summary: dict[str, Any] = field(default_factory=dict)
 
+    def as_dict(self) -> dict[str, Any]:
+        import dataclasses
+        return dataclasses.asdict(self)
+
 
 # ── Smart Funnel Engine ───────────────────────────────────────────────────────
 
@@ -302,6 +306,37 @@ class SmartFunnel:
         if pe > 95.0:
             score -= 15.0
             rejection_flags.append(f"Extreme valuation multiple (P/E {pe:.1f}x)")
+
+        # ── Sector Rotation & RRG Alignment ──
+        try:
+            from analysis.sector_rotation import get_stock_sector_alignment
+
+            sec_info = get_stock_sector_alignment(symbol)
+            quad = sec_info.get("quadrant")
+            if quad == "LEADING":
+                score += 5.0
+                positive_flags.append(f"Sector {sec_info.get('sector')} is LEADING benchmark")
+            elif quad == "IMPROVING":
+                score += 3.0
+                positive_flags.append(f"Sector {sec_info.get('sector')} is IMPROVING momentum")
+            elif quad == "LAGGING":
+                score -= 5.0
+        except Exception:
+            pass
+
+        # ── Forensic & Governance Quality Check ──
+        try:
+            from analysis.forensic import audit_forensics
+
+            audit = audit_forensics(symbol)
+            if audit.governance_red_flags:
+                score -= 15.0
+                rejection_flags.append(f"Forensic flag: {audit.governance_red_flags[0]}")
+            elif audit.quality_rating in ("A+", "A"):
+                score += 5.0
+                positive_flags.append(f"Forensic Quality Rating: {audit.quality_rating}")
+        except Exception:
+            pass
 
         final_score = max(0.0, min(100.0, score))
         qualified = final_score >= 60.0 and len(rejection_flags) <= 1

@@ -8,6 +8,7 @@ import SetupScreen from './components/SetupScreen'
 import OnboardingWizard from './components/Onboarding/OnboardingWizard'
 import CommandPalette from './components/Modals/CommandPalette'
 import OrderTicketModal from './components/Modals/OrderTicketModal'
+import MetricExplainerModal from './components/Modals/MetricExplainerModal'
 
 function useTheme() {
   const [theme, setThemeState] = useState(() => {
@@ -239,6 +240,7 @@ export default function App() {
         onClose={() => setIsOrderTicketOpen(false)}
         initialData={{ symbol: 'RELIANCE', exchange: 'NSE', price: 2800, stopLoss: 2760, target: 2890 }}
       />
+      <MetricExplainerModal />
     </div>
   )
 }

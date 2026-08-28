@@ -50,6 +50,8 @@ from textual.widgets import (
 
 from ui.widgets.portfolio import PortfolioWidget
 from ui.widgets.risk_meter import RiskMeterWidget
+from ui.widgets.sector_rrg import SectorRRGWidget
+from ui.widgets.forensic_view import ForensicWidget
 
 IST = pytz.timezone("Asia/Kolkata")
 
@@ -139,7 +141,7 @@ class TradingTUI(App):
     the AI agent's guidance appears.
     """
 
-    TITLE = "TradeAI — Guided Trading Terminal"
+    TITLE = "TradeAI — Institutional Trading Terminal"
     SUB_TITLE = f"Paper Mode | {datetime.now(IST).strftime('%d %b %Y')}"
 
     CSS = """
@@ -160,6 +162,7 @@ class TradingTUI(App):
     #right-col {
         width: 1fr;
         layout: vertical;
+        overflow-y: auto;
     }
 
     #chat-panel {
@@ -181,21 +184,34 @@ class TradingTUI(App):
 
     MarketTickerWidget {
         height: auto;
+        max-height: 11;
+    }
+
+    SectorRRGWidget {
+        height: auto;
         max-height: 12;
     }
 
     PortfolioWidget {
-        height: 1fr;
+        height: auto;
+        min-height: 8;
+    }
+
+    ForensicWidget {
+        height: auto;
+        max-height: 10;
     }
 
     RiskMeterWidget {
         height: auto;
-        max-height: 9;
+        max-height: 8;
     }
     """
 
     BINDINGS: ClassVar[list[Binding]] = [
         Binding("ctrl+b", "morning_brief", "Brief", show=True),
+        Binding("ctrl+s", "sector_rrg", "RRG", show=True),
+        Binding("ctrl+f", "forensic_audit", "Forensic", show=True),
         Binding("ctrl+o", "options_chain", "Options", show=True),
         Binding("ctrl+r", "refresh_all", "Refresh", show=True),
         Binding("ctrl+q", "quit", "Quit", show=True),
@@ -211,14 +227,16 @@ class TradingTUI(App):
                 yield ChatPanel(id="chat-panel", highlight=True, markup=True)
                 with Static(id="input-bar"):
                     yield Input(
-                        placeholder="Ask the agent anything, or type a command...",
+                        placeholder="Ask the agent, or type /rrg, /forensic INFY, /size NIFTY...",
                         id="input-field",
                     )
 
             # Right: live data panels
             with Vertical(id="right-col"):
                 yield MarketTickerWidget(id="market-ticker")
+                yield SectorRRGWidget(id="sector-rrg-widget")
                 yield PortfolioWidget(id="portfolio-widget")
+                yield ForensicWidget(id="forensic-widget")
                 yield RiskMeterWidget(id="risk-widget")
 
         yield Footer()
@@ -229,20 +247,21 @@ class TradingTUI(App):
         mode = os.environ.get("TRADING_MODE", "PAPER")
 
         chat.write(
-            f"[bold cyan]🚀  TradeAI — Guided Trading Terminal[/bold cyan]\n"
+            f"[bold cyan]🚀  TradeAI — Institutional Trading Terminal[/bold cyan]\n"
             f"[dim]Mode: [bold]{mode}[/bold]   "
             f"Date: {datetime.now(IST).strftime('%d %b %Y  %I:%M %p IST')}[/dim]\n"
         )
         chat.write(
             "Type your question or command below.\n"
-            "[dim]Examples:[/dim]\n"
-            "  [cyan]Analyse RELIANCE for me[/cyan]\n"
-            "  [cyan]Give me a morning brief[/cyan]\n"
-            "  [cyan]What is a Bull Call Spread?[/cyan]\n"
-            "  [cyan]Show my portfolio Greeks[/cyan]\n"
+            "[dim]Commands:[/dim]\n"
+            "  [cyan]rrg[/cyan]                  → Sector Relative Rotation Graph\n"
+            "  [cyan]forensic RELIANCE[/cyan]    → Beneish & Altman Governance Audit\n"
+            "  [cyan]size NIFTY 24000[/cyan]     → Volatility Risk-Parity Position Sizer\n"
+            "  [cyan]funnel nifty_50[/cyan]       → 3-Stage Smart Funnel Screening\n"
+            "  [cyan]brief[/cyan]                → Morning Market Brief\n"
         )
 
-        # Pre-init the agent in background (avoids first-message delay)
+        # Pre-init the agent in background
         self.init_agent()
 
     @work(thread=True)
@@ -267,39 +286,72 @@ class TradingTUI(App):
     @work(thread=True)
     def _handle_command(self, text: str) -> None:
         """
-        Route the input to either a direct command or the AI agent.
-        Runs in a background thread so the UI stays responsive.
+        Route the input to direct local quantitative utilities or the AI agent.
         """
         chat = self.query_one("#chat-panel", ChatPanel)
         chat.write(f"\n[bold cyan]You ❯[/bold cyan] {text}\n")
 
-        # Direct commands that don't need the AI
-        lower = text.lower()
-        if lower in ("refresh", "r"):
+        parts = text.split()
+        cmd = parts[0].lower().lstrip("/") if parts else ""
+        args = parts[1:]
+
+        # Direct quantitative & analytical commands
+        if cmd in ("refresh", "r"):
             self.call_from_thread(self.action_refresh_all)
             return
-        if lower in ("help", "?"):
+        if cmd in ("help", "?"):
             self.call_from_thread(self.action_show_help)
             return
+        if cmd in ("rrg", "sector", "rotation"):
+            try:
+                from analysis.sector_rotation import get_sector_rrg_matrix
+
+                points = get_sector_rrg_matrix(use_cache=True)
+                chat.write("[bold green]🌐 Relative Rotation Graph (RRG) Sectors vs NIFTY 50:[/bold green]")
+                for p in points:
+                    q_col = "green" if p.quadrant == "LEADING" else "yellow" if p.quadrant == "WEAKENING" else "cyan" if p.quadrant == "IMPROVING" else "red"
+                    chat.write(f"  • [bold]{p.sector:<10}[/bold] Ratio: {p.rs_ratio:>5.1f} | Mom: {p.rs_momentum:>5.1f} | [{q_col}]{p.quadrant}[/{q_col}]")
+                return
+            except Exception as exc:
+                chat.write(f"[red]RRG error: {exc}[/red]")
+                return
+
+        if cmd in ("forensic", "audit", "fa"):
+            sym = (args[0] if args else "RELIANCE").upper()
+            try:
+                from analysis.forensic import audit_forensics
+
+                res = audit_forensics(sym)
+                chat.write(f"[bold green]🛡️ Forensic Audit: {res.symbol} (Grade: {res.quality_rating})[/bold green]")
+                chat.write(f"  • Beneish M-Score: {res.beneish_m_score:.2f} ({'FLAGGED' if res.is_beneish_flagged else 'CLEAN'})")
+                chat.write(f"  • Altman Z''-Score: {res.altman_z_score:.2f} ({res.distress_zone} zone)")
+                chat.write(f"  • Piotroski F-Score: {res.piotroski_f_score}/9")
+                if res.governance_red_flags:
+                    chat.write(f"  [red]⚠️ Red Flags: {'; '.join(res.governance_red_flags)}[/red]")
+                return
+            except Exception as exc:
+                chat.write(f"[red]Forensic error: {exc}[/red]")
+                return
+
+        if cmd in ("size", "sizing", "position"):
+            sym = (args[0] if args else "NIFTY").upper()
+            entry = float(args[1]) if len(args) > 1 else 24000.0
+            sl = float(args[2]) if len(args) > 2 else round(entry * 0.98, 2)
+            try:
+                from engine.position_sizer import calculate_position_size
+
+                res = calculate_position_size(symbol=sym, entry_price=entry, stop_loss=sl)
+                chat.write(f"[bold green]⚖️ Position Sizer: {res.symbol}[/bold green]")
+                chat.write(f"  • Shares: [bold]{res.shares}[/bold] ({res.lots} lot{'s' if res.lots > 1 else ''})")
+                chat.write(f"  • Capital: ₹{res.capital_allocated:,.0f} ({res.capital_pct:.1f}%) | Max Risk: ₹{res.risk_amount:,.0f}")
+                return
+            except Exception as exc:
+                chat.write(f"[red]Sizing error: {exc}[/red]")
+                return
 
         # Route everything else to the agent
         try:
             from agent.core import get_agent
-
-            # Redirect agent output to our chat panel
-            import rich.console as _rc
-
-            class TUIConsole(_rc.Console):
-                """Intercept rich prints and write to chat panel."""
-
-                def __init__(self_inner, *args, **kwargs):
-                    super().__init__(*args, **kwargs)
-
-                def print(self_inner, *args, **kwargs):
-                    # Also write to chat panel
-                    content = " ".join(str(a) for a in args)
-                    self.call_from_thread(chat.write, content)
-                    super().print(*args, **kwargs)
 
             agent = get_agent()
             agent.chat(text)
@@ -312,7 +364,10 @@ class TradingTUI(App):
 
     def _refresh_side_panels(self) -> None:
         try:
+            self.query_one("#market-ticker", MarketTickerWidget).refresh_data()
+            self.query_one("#sector-rrg-widget", SectorRRGWidget).refresh_data()
             self.query_one("#portfolio-widget", PortfolioWidget).refresh_data()
+            self.query_one("#forensic-widget", ForensicWidget).refresh_data("RELIANCE")
             self.query_one("#risk-widget", RiskMeterWidget).refresh_data()
         except Exception:
             pass
@@ -320,42 +375,38 @@ class TradingTUI(App):
     # ── Actions (keyboard shortcuts) ──────────────────────────
 
     def action_morning_brief(self) -> None:
-        self._handle_command("Give me a morning market brief")
+        self._handle_command("brief")
+
+    def action_sector_rrg(self) -> None:
+        self._handle_command("rrg")
+
+    def action_forensic_audit(self) -> None:
+        self._handle_command("forensic RELIANCE")
 
     def action_options_chain(self) -> None:
-        """Focus the options chain symbol input."""
-        try:
-            inp = self.query_one("#chain-symbol", Input)
-            inp.focus()
-        except Exception:
-            self._handle_command("Show me the NIFTY options chain")
+        self._handle_command("Show me the NIFTY options chain")
 
     def action_refresh_all(self) -> None:
-        try:
-            self.query_one("#market-ticker", MarketTickerWidget).refresh_data()
-            self.query_one("#portfolio-widget", PortfolioWidget).refresh_data()
-            self.query_one("#risk-widget", RiskMeterWidget).refresh_data()
-        except Exception:
-            pass
+        self._refresh_side_panels()
 
     def action_show_help(self) -> None:
         chat = self.query_one("#chat-panel", ChatPanel)
         chat.write("""
 [bold cyan]Keyboard Shortcuts:[/bold cyan]
   Ctrl+B  — Morning market brief
-  Ctrl+O  — Focus options chain input
+  Ctrl+S  — Sector RRG rotation matrix
+  Ctrl+F  — Forensic quality audit (RELIANCE)
+  Ctrl+O  — Options chain
   Ctrl+R  — Refresh all data panels
   Ctrl+Q  — Quit
   F1      — This help
 
-[bold cyan]What you can ask:[/bold cyan]
-  • Analyse RELIANCE / NIFTY / any NSE symbol
-  • Show me the options chain for BANKNIFTY
-  • What is the market sentiment today?
-  • Calculate payoff for a Bull Call Spread
-  • Should I buy or sell INFY right now?
-  • Explain Iron Condor strategy
-  • What are my portfolio Greeks?
+[bold cyan]Commands:[/bold cyan]
+  • rrg                         → Show sector momentum quadrants
+  • forensic <symbol>           → Beneish, Altman & Piotroski audit
+  • size <sym> <entry> <sl>     → Risk-parity position sizing
+  • funnel <watchlist>          → Smart Funnel 3-stage screening
+  • brief                       → Daily market posture & morning brief
 """)
 
 
