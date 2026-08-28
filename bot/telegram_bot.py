@@ -965,10 +965,10 @@ def run_setup_wizard() -> None:
 # ── Push Notifications ───────────────────────────────────────
 
 
-def send_push(message: str) -> None:
+def send_push(message: str, parse_mode: str = "HTML") -> None:
     """
     Send a push notification to the configured Telegram chat.
-    Called from alerts, morning brief scheduler, etc.
+    Called from alerts, morning brief scheduler, execution gate, etc.
     Non-blocking — runs in a background thread.
     """
     chat_id = _load_chat_id()
@@ -983,9 +983,18 @@ def send_push(message: str) -> None:
     def _send():
         try:
             import httpx
+            import re
 
             url = f"https://api.telegram.org/bot{token}/sendMessage"
-            httpx.post(url, json={"chat_id": chat_id, "text": message}, timeout=10)
+            payload = {"chat_id": chat_id, "text": message}
+            if parse_mode:
+                payload["parse_mode"] = parse_mode
+
+            resp = httpx.post(url, json=payload, timeout=10)
+            # If HTML parsing fails due to any unescaped tags/characters, retry as plain text so the alert is never lost
+            if not resp.is_success and parse_mode == "HTML":
+                clean_text = re.sub(r"<[^>]+>", "", message)
+                httpx.post(url, json={"chat_id": chat_id, "text": clean_text}, timeout=10)
         except Exception:
             pass
 
@@ -994,39 +1003,53 @@ def send_push(message: str) -> None:
 
 def push_alert(alert_desc: str) -> None:
     """Push an alert trigger notification."""
-    send_push(f"🔔 ALERT TRIGGERED\n\n{alert_desc}")
+    send_push(f"🔔 <b>ALERT TRIGGERED</b>\n\n{alert_desc}")
 
 
 def push_brief(brief_text: str) -> None:
     """Push a morning brief."""
-    send_push(f"🇮🇳 Morning Brief\n\n{brief_text}")
+    send_push(f"🇮🇳 <b>Morning Brief</b>\n\n{brief_text}")
 
 
 def format_execution_alert_message(d: dict) -> str:
     """
-    Format a rich, actionable Execution Readiness notification for Telegram.
-    Includes exact Entry, Stop Loss, Targets, Risk:Reward, and quick copy-paste commands.
+    Format a rich, actionable Execution Readiness notification for Telegram using valid HTML formatting.
+    Includes exact Entry, Stop Loss, Targets, Risk:Reward, Expected Timelines, Profit Booking Playbook,
+    and clean quick-execute commands.
     """
     symbol = d.get("symbol", "UNKNOWN")
     sector = d.get("sector", "General")
     sector_icon = d.get("sector_icon", "🏢")
-    ltp = d.get("ltp", 0.0)
+    ltp = float(d.get("ltp", 0.0))
     status = d.get("execution_status", "STALK")
-    strat_score = d.get("strategic_score", 0)
-    tact_score = d.get("tactical_score", 0)
-    entry = d.get("entry_price", ltp)
-    sl = d.get("stop_loss", ltp * 0.97)
-    t1 = d.get("target_1", ltp * 1.05)
-    t2 = d.get("target_2", ltp * 1.08)
-    rr = d.get("risk_reward_ratio", 2.0)
+    strat_score = int(d.get("strategic_score", d.get("conviction_score", 0)))
+    tact_score = int(d.get("tactical_score", 80))
+    entry = float(d.get("entry_price", ltp))
+    sl = float(d.get("stop_loss", ltp * 0.97))
+    t1 = float(d.get("target_1", ltp * 1.05))
+    t2 = float(d.get("target_2", ltp * 1.08))
+    rr = float(d.get("risk_reward_ratio", 2.0))
     setup_title = d.get("setup_title", "Institutional Setup")
-    rvol = d.get("rvol", 1.5)
+    rvol = float(d.get("rvol", d.get("rvol_20d", 1.5)))
     oi_regime = d.get("options_oi_regime", "LONG_BUILDUP")
     catalysts = d.get("catalysts", [])
+    if not catalysts and d.get("catalyst_summary"):
+        catalysts = [c.strip() for c in d.get("catalyst_summary", "").split("·") if c.strip()]
 
-    status_badge = "🚀 READY TO EXECUTE" if status == "READY" else "🎯 STALK ON RETEST"
+    timeline = d.get("expected_timeline", "3–10 Trading Days (Swing Momentum)")
+    t1_time = d.get("target_1_timeline", "2–5 Trading Days")
+    t2_time = d.get("target_2_timeline", "6–10 Trading Days")
+    time_stop = d.get("time_stop_days", 10)
 
+    risk_pct = abs((entry - sl) / entry * 100) if entry else 0.0
+    t1_pct = abs((t1 - entry) / entry * 100) if entry else 0.0
+    t2_pct = abs((t2 - entry) / entry * 100) if entry else 0.0
+
+    status_badge = "🚀 <b>READY TO EXECUTE</b>" if status == "READY" else "🎯 <b>STALK ON RETEST</b>"
     cat_text = "\n".join([f"• {c}" for c in catalysts[:3]]) if catalysts else "• Confirmed Institutional Structure"
+
+    # Breakeven price with +0.2% cost buffer
+    be_price = entry * 1.002
 
     msg = (
         f"{status_badge}\n"
@@ -1036,14 +1059,24 @@ def format_execution_alert_message(d: dict) -> str:
         f"📊 <b>Scores:</b> Strategic: <b>{strat_score}/100</b> | Live Tactical: <b>{tact_score}/100</b>\n"
         f"⚡ <b>RVOL:</b> {rvol:.1f}x | <b>OI Flow:</b> {oi_regime}\n\n"
         f"🎯 <b>Actionable Blueprint:</b>\n"
-        f"• Entry Zone: <code>₹{entry:,.2f}</code>\n"
-        f"• Invalidation SL: <code>₹{sl:,.2f}</code>\n"
-        f"• Target 1 (2R): <code>₹{t1:,.2f}</code>\n"
-        f"• Target 2 (3.5R): <code>₹{t2:,.2f}</code>\n"
-        f"• Risk : Reward: <b>1:{rr} R:R</b>\n\n"
+        f"• <b>Entry Zone:</b> <code>₹{entry:,.2f}</code>\n"
+        f"• <b>Invalidation SL:</b> <code>₹{sl:,.2f}</code> (-{risk_pct:.1f}%)\n"
+        f"• <b>Target 1 (2R):</b> <code>₹{t1:,.2f}</code> (+{t1_pct:.1f}%)\n"
+        f"• <b>Target 2 (3.5R):</b> <code>₹{t2:,.2f}</code> (+{t2_pct:.1f}%)\n"
+        f"• <b>Risk : Reward:</b> <b>1:{rr:.1f} R:R</b>\n\n"
+        f"⏳ <b>Expected Timeline & Horizon:</b>\n"
+        f"• <b>Holding Horizon:</b> <b>{timeline}</b>\n"
+        f"• <b>Target 1 Window:</b> Expected within <b>{t1_time}</b>\n"
+        f"• <b>Target 2 Window:</b> Expected within <b>{t2_time}</b>\n"
+        f"• <b>Time Stop Invalidation:</b> Exit if no expansion after <b>{time_stop} sessions</b>\n\n"
+        f"📋 <b>Profit-Booking & Trade Playbook:</b>\n"
+        f"1️⃣ <b>At Target 1 (₹{t1:,.2f}):</b> <b>Scale out 50% profit</b> & move Stop Loss to <b>Breakeven</b> (<code>₹{be_price:,.2f}</code>) for a 100% risk-free trade.\n"
+        f"2️⃣ <b>Target 2 Trailing:</b> Trail remaining 50% position using <b>Daily 20-EMA / 3.0×ATR</b> trailing stop.\n"
+        f"3️⃣ <b>Hard Invalidation:</b> Exit entire position if daily candle closes below <code>₹{sl:,.2f}</code>.\n\n"
         f"💡 <b>Live Catalysts:</b>\n"
         f"{cat_text}\n\n"
-        f"⚡ <b>Execute / Size:</b> <code>/size {symbol} {entry} {sl}</code>"
+        f"⚡ <b>Quick Size / Place Order:</b>\n"
+        f"<code>/size {symbol} {entry:.2f} {sl:.2f}</code>"
     )
     return msg
 
@@ -1052,7 +1085,7 @@ def push_execution_alert(report_dict: dict) -> None:
     """Push rich Execution Readiness notification to Telegram."""
     try:
         msg = format_execution_alert_message(report_dict)
-        send_push(msg)
+        send_push(msg, parse_mode="HTML")
     except Exception:
         pass
 

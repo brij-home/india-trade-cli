@@ -70,6 +70,11 @@ class ExecutionGateReport:
     rvol: float
     options_oi_regime: str
     squeeze_fired: bool
+    expected_timeline: str = "3–10 Trading Days (Swing Momentum)"
+    target_1_timeline: str = "2–5 Trading Days"
+    target_2_timeline: str = "6–10 Trading Days"
+    time_stop_days: int = 10
+    profit_booking_plan: str = ""
     catalysts: list[str] = field(default_factory=list)
     action_summary: str = ""
     telegram_sent: bool = False
@@ -95,9 +100,9 @@ def evaluate_execution_gate(
 
     if df is None or len(df) == 0:
         try:
-            from market.history import get_ohlcv
+            from market.history import get_daily_history
 
-            df = get_ohlcv(symbol, exchange=exchange, interval="day", days=250)
+            df = get_daily_history(symbol=symbol, exchange=exchange, days=250)
         except Exception:
             df = None
 
@@ -120,12 +125,20 @@ def evaluate_execution_gate(
             rvol=1.0,
             options_oi_regime="BALANCED",
             squeeze_fired=False,
+            expected_timeline="3–10 Trading Days",
+            target_1_timeline="2–5 Trading Days",
+            target_2_timeline="6–10 Trading Days",
+            time_stop_days=10,
+            profit_booking_plan="Awaiting data before planning.",
             catalysts=["Insufficient historical bars"],
             action_summary="Awaiting data before evaluation.",
             telegram_sent=False,
         )
 
-    ltp = float(df["close"].iloc[-1])
+    # Normalize column names if needed
+    col_map = {c: c.lower() for c in df.columns}
+    close_col = "close" if "close" in df.columns else "Close" if "Close" in df.columns else df.columns[3]
+    ltp = float(df[close_col].iloc[-1])
 
     # 1. Tier 1: Strategic Macro & Positional Analysis (Historical Lookback)
     ms = analyze_market_structure(symbol, df=df, exchange=exchange)
@@ -137,7 +150,6 @@ def evaluate_execution_gate(
     sec_align = get_stock_sector_alignment(symbol)
     sector_icon = SECTOR_TAXONOMY.get(sec_id, {}).get("icon", "🏢")
 
-
     # Strategic Scoring (0–100)
     strat_score = 40
     if mb.weinstein_stage == "STAGE_2_MARKUP":
@@ -145,16 +157,15 @@ def evaluate_execution_gate(
     if mb.trend_template_passed >= 7:
         strat_score += 15
     if ms.regime == "BULLISH":
-
         strat_score += 10
-    if sec_align.get("quadrant") == "LEADING":
+    if (isinstance(sec_align, dict) and sec_align.get("quadrant") == "LEADING") or sec_align == "STRONG_LEADING":
         strat_score += 10
     strat_score = int(min(98, max(20, strat_score)))
 
     # 2. Tier 2: Tactical Microstructure Analysis (Live Real-Time Tick & Order Flow)
     vp = analyze_volume_profile(symbol, df=df, exchange=exchange)
     squeeze = compute_ttm_squeeze(df)
-    opt_flow = analyze_options_flow(symbol, ltp)
+    opt_flow = analyze_options_flow(symbol=symbol, ltp=ltp)
 
     tact_score = 40
     catalysts: list[str] = []
@@ -171,50 +182,56 @@ def evaluate_execution_gate(
     # Factor B: Squeeze Explosion
     if squeeze.squeeze_fired:
         tact_score += 20
-        catalysts.append("🚀 Squeeze FIRED — Volatility expansion active")
+        catalysts.append(f"🚀 Squeeze FIRED ({squeeze.momentum_direction}) — Volatility expansion active")
     elif squeeze.is_squeeze_on:
         tact_score += 10
         catalysts.append(f"🔴 Energy coiling in Squeeze ({squeeze.squeeze_duration_bars} bars)")
 
     # Factor C: Live Options Flow
-    if opt_flow.has_options:
-        if opt_flow.dominant_regime in ("LONG_BUILDUP", "SHORT_COVERING"):
-            tact_score += 20
-            catalysts.append(f"Live Options {opt_flow.dominant_regime} (PCR {opt_flow.pcr})")
-        elif opt_flow.dominant_regime in ("SHORT_BUILDUP", "LONG_UNWINDING"):
-            tact_score -= 20
-            catalysts.append(f"⚠️ Live Options Resistance: {opt_flow.dominant_regime}")
+    if opt_flow.dominant_regime in ("LONG_BUILDUP", "SHORT_COVERING"):
+        tact_score += 20
+        catalysts.append(f"Live Options {opt_flow.dominant_regime} (PCR {opt_flow.pcr})")
+    elif opt_flow.dominant_regime in ("SHORT_BUILDUP", "LONG_UNWINDING"):
+        tact_score -= 20
+        catalysts.append(f"⚠️ Live Options Resistance: {opt_flow.dominant_regime}")
 
     # Factor D: SMC Structural Trigger (BOS / CHoCH)
-    if ms.bos_detected and ms.bos_type == "BULLISH_BOS":
+    if ms.choch_detected:
         tact_score += 15
-        catalysts.append("🚀 Bullish Break of Structure (BOS)")
-    elif ms.choch_detected and ms.choch_type == "BULLISH_CHOCH":
-        tact_score += 15
-        catalysts.append("⚠️ Bullish Change of Character (CHoCH)")
+        catalysts.append(f"⚠️ Bullish Change of Character ({ms.choch_type})")
 
     tact_score = int(min(98, max(15, tact_score)))
 
     # 3. Determine Execution Status
     if tact_score >= 78 and strat_score >= 70:
         execution_status = "READY"
-        action_summary = f"⚡ Alignment confirmed! Execute Long near ₹{ltp:.2f}. Invalidation stop below ₹{ms.invalidation_level:.2f}."
+        action_summary = f"⚡ Alignment confirmed! Execute Long near ₹{ltp:.2f}."
     elif strat_score >= 70 and tact_score >= 50:
         execution_status = "STALK"
-        action_summary = f"🎯 Strategic setup valid. Stalk entry on intraday pullback near ₹{ms.nearest_support:.2f} (20-EMA)."
+        action_summary = f"🎯 Strategic setup valid. Stalk entry on intraday pullback near ₹{ltp * 0.985:.2f}."
     else:
         execution_status = "STAND_DOWN"
         action_summary = "Stand down. Awaiting live volume or structural confirmation."
 
     # Actionable Blueprint Levels
-    entry_price = ltp
-    stop_loss = round(ms.invalidation_level if (ms.invalidation_level and ms.invalidation_level < ltp) else ltp * 0.965, 2)
-    risk_pts = max(0.1, ltp - stop_loss)
-    target_1 = round(ltp + (risk_pts * 2.0), 2)
-    target_2 = round(ltp + (risk_pts * 3.5), 2)
-    rr_ratio = round((target_1 - ltp) / risk_pts, 2)
+    entry_price = round(ltp, 2)
+    atr = float(df["High"].iloc[-14:] - df["Low"].iloc[-14:]).mean() if "High" in df.columns and len(df) >= 14 else ltp * 0.02
+    stop_loss = round(max(ltp * 0.85, ltp - (1.5 * atr)), 2)
+    risk_pts = max(1.0, entry_price - stop_loss)
+    target_1 = round(entry_price + (risk_pts * 2.0), 2)
+    target_2 = round(entry_price + (risk_pts * 3.5), 2)
+    rr_ratio = round((target_1 - entry_price) / risk_pts, 2)
 
     setup_title = "💎 Stage 2 Markup" if mb.weinstein_stage == "STAGE_2_MARKUP" else (ms.setup_type.replace("_", " ").title())
+
+    expected_timeline = "3–10 Trading Days (Swing Momentum)" if mb.weinstein_stage == "STAGE_2_MARKUP" else "2–7 Trading Days (Swing Reversal)"
+    t1_timeline = "2–5 Trading Days"
+    t2_timeline = "6–10 Trading Days"
+    time_stop_days = 10
+    profit_booking_plan = (
+        f"Scale out 50% at Target 1 (₹{target_1:,.2f}), move SL to Breakeven (+0.2%), "
+        f"and trail remainder via Daily 20-EMA / 3.0×ATR to Target 2 (₹{target_2:,.2f})."
+    )
 
     report = ExecutionGateReport(
         symbol=symbol,
@@ -234,6 +251,11 @@ def evaluate_execution_gate(
         rvol=rvol_val,
         options_oi_regime=opt_flow.dominant_regime,
         squeeze_fired=squeeze.squeeze_fired,
+        expected_timeline=expected_timeline,
+        target_1_timeline=t1_timeline,
+        target_2_timeline=t2_timeline,
+        time_stop_days=time_stop_days,
+        profit_booking_plan=profit_booking_plan,
         catalysts=catalysts,
         action_summary=action_summary,
         telegram_sent=False,

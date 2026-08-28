@@ -214,9 +214,16 @@ export const useChatStore = create((set, get) => ({
 
   finalizeStreamingMessage: (_id) => set({ isLoading: false, activeStreamId: null }),
 
-  // Draft message — lets cards pre-fill the input bar
+  // Navigation & View Mode
+  showDashboard: false,
+  setShowDashboard: (val) => set({ showDashboard: val }),
+
+  // Draft message — lets cards pre-fill or auto-execute in the input bar
   draft: '',
-  setDraft: (text) => set({ draft: text }),
+  autoSubmit: false,
+  setDraft: (text) => set({ draft: text, autoSubmit: false }),
+  sendDraft: (text) => set({ draft: text, autoSubmit: true, showDashboard: false }),
+  clearAutoSubmit: () => set({ autoSubmit: false }),
 
   // Context queued while a streaming analysis is running (#102)
   // Shown as a user bubble and auto-injected into the first follow-up

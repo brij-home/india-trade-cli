@@ -26,17 +26,15 @@ export default function HighConvictionCard({ data, onOpenOrderTicket }) {
   const { call } = useAPI()
 
   const openInspector = useInspectorStore((s) => s.openInspector)
-  const setDraft = useChatStore((s) => s.setDraft)
+  const sendDraft = useChatStore((s) => s.sendDraft)
 
   const posture = POSTURE_BADGES[d.market_posture] || POSTURE_BADGES.CHOPPY_ROTATION
 
   const handleSendTelegram = async (opp) => {
     setTelegramStatus((prev) => ({ ...prev, [opp.symbol]: 'sending' }))
     try {
-      await call('/skills/execution_gate', {
-        symbol: opp.symbol,
-        exchange: 'NSE',
-        notify_telegram: true,
+      await call('/skills/send_opportunity_telegram', {
+        opportunity: opp,
       })
       setTelegramStatus((prev) => ({ ...prev, [opp.symbol]: 'sent' }))
       setTimeout(() => {
@@ -128,9 +126,15 @@ export default function HighConvictionCard({ data, onOpenOrderTicket }) {
             Leading Sectors:
           </span>
           {d.leading_sectors.map((sec, idx) => (
-            <span key={idx} className="bg-green/10 text-green border border-green/30 text-[10px] px-2 py-0.5 rounded font-mono font-bold flex-shrink-0">
-              ⚡ {sec}
-            </span>
+            <button
+              key={idx}
+              type="button"
+              onClick={() => window.dispatchEvent(new CustomEvent('open-sector-drilldown', { detail: { sector: sec } }))}
+              className="bg-green/10 hover:bg-green/20 text-green border border-green/30 hover:border-green text-[10px] px-2 py-0.5 rounded font-mono font-bold flex-shrink-0 cursor-pointer transition-all hover:scale-105"
+              title={`Click to view all stocks and contributing factors in ${sec}`}
+            >
+              ⚡ {sec} →
+            </button>
           ))}
         </div>
       )}
@@ -251,7 +255,10 @@ export default function HighConvictionCard({ data, onOpenOrderTicket }) {
                     </button>
 
                     <button
-                      onClick={() => setDraft(`analyze ${opp.symbol}`)}
+                      onClick={() => {
+                        window.dispatchEvent(new CustomEvent('close-all-modals'))
+                        sendDraft(`analyze ${opp.symbol}`)
+                      }}
                       className="px-2.5 py-1 rounded bg-amber hover:bg-amber/90 text-black font-ui font-bold text-[11px] transition-colors cursor-pointer shadow-xs"
                       title="Run Full Multi-Agent AI Debate"
                     >
@@ -275,6 +282,14 @@ export default function HighConvictionCard({ data, onOpenOrderTicket }) {
                 {/* Expanded Actionable Blueprint */}
                 {isExpanded && (
                   <div className="pt-2 border-t border-border/40 space-y-2 text-xs font-ui">
+                    {/* Institutional Why Rationale Callout */}
+                    {opp.why_rationale && (
+                      <div className="bg-green/10 border border-green/30 p-2.5 rounded-lg text-xs font-ui text-green-300">
+                        <strong className="text-[10px] uppercase text-green font-bold block mb-0.5">🎯 Institutional Rationale & Contributing Factors:</strong>
+                        {opp.why_rationale}
+                      </div>
+                    )}
+
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 bg-elevated/70 p-2.5 rounded font-mono">
                       <div>
                         <span className="text-[10px] text-muted font-ui uppercase">Entry Level</span>
@@ -313,12 +328,35 @@ export default function HighConvictionCard({ data, onOpenOrderTicket }) {
                           View SMC Blueprint →
                         </button>
                         <button
-                          onClick={() => setDraft(`size ${opp.symbol} ${opp.entry_price} ${opp.stop_loss}`)}
+                          onClick={() => {
+                            window.dispatchEvent(new CustomEvent('close-all-modals'))
+                            sendDraft(`size ${opp.symbol} ${opp.entry_price} ${opp.stop_loss}`)
+                          }}
                           className="text-[10px] bg-panel hover:bg-elevated border border-border px-2 py-0.5 rounded text-text cursor-pointer"
                         >
                           Size Position ⚖️
                         </button>
                       </div>
+                    </div>
+
+                    {/* Expected Timeline & Profit-Booking Playbook */}
+                    <div className="bg-panel/60 p-2 rounded border border-border/30 space-y-1.5 text-[11px]">
+                      <div className="flex flex-wrap items-center justify-between gap-1 text-muted">
+                        <span className="flex items-center gap-1">
+                          <span>⏳</span>
+                          <span>Horizon: <strong className="text-text">{opp.expected_timeline || '3–10 Trading Days (Swing Momentum)'}</strong></span>
+                        </span>
+                        <span className="flex items-center gap-2">
+                          <span>T1: <strong className="text-green font-mono">{opp.target_1_timeline || '2–5 Days'}</strong></span>
+                          <span>•</span>
+                          <span>T2: <strong className="text-green font-mono">{opp.target_2_timeline || '6–10 Days'}</strong></span>
+                          <span>•</span>
+                          <span>Time Invalidation: <strong className="text-red font-mono">{opp.time_stop_days || 10} Sessions</strong></span>
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-muted leading-tight border-t border-border/20 pt-1">
+                        📋 <strong>Playbook:</strong> {opp.profit_booking_plan || `Scale out 50% at Target 1 (₹${opp.target_1?.toLocaleString()}), move SL to Breakeven (+0.2%), and trail remainder via Daily 20-EMA to Target 2.`}
+                      </p>
                     </div>
 
                     <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-border/20 mt-1 text-[10px] text-muted">

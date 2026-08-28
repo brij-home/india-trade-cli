@@ -5,7 +5,7 @@ export default function BacktestCard({ data }) {
   if (!data) return null
 
   const r = data?.data ?? data ?? {}
-  const setDraft = useChatStore((s) => s.setDraft)
+  const sendDraft = useChatStore((s) => s.sendDraft)
 
   const returnVal = Number(r.total_return ?? r.return_pct ?? 0)
   const isPositive = returnVal >= 0
@@ -67,17 +67,19 @@ export default function BacktestCard({ data }) {
         ))}
       </div>
 
-      {/* Quick Test Links */}
+      {/* Quick Test Links (1-Click Instant Execution) */}
       <div className="pt-2 border-t border-border/40 flex flex-wrap gap-1.5 text-[11px] font-ui">
         <button
-          onClick={() => setDraft(`backtest ${r.symbol || 'RELIANCE'} ema`)}
-          className="bg-panel hover:bg-elevated text-text border border-border/60 px-2 py-1 rounded transition-colors"
+          onClick={() => sendDraft(`backtest ${r.symbol || 'RELIANCE'} ema`)}
+          className="bg-panel hover:bg-elevated text-text border border-border/60 px-2.5 py-1 rounded-lg transition-colors cursor-pointer"
+          title="Run EMA Crossover backtest"
         >
           🔄 Test with EMA Crossover
         </button>
         <button
-          onClick={() => setDraft(`backtest ${r.symbol || 'RELIANCE'} bb`)}
-          className="bg-panel hover:bg-elevated text-text border border-border/60 px-2 py-1 rounded transition-colors"
+          onClick={() => sendDraft(`backtest ${r.symbol || 'RELIANCE'} bb`)}
+          className="bg-panel hover:bg-elevated text-text border border-border/60 px-2.5 py-1 rounded-lg transition-colors cursor-pointer"
+          title="Run Bollinger Bands backtest"
         >
           📊 Test with Bollinger Bands
         </button>

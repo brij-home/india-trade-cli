@@ -3,7 +3,7 @@ import { useChatStore } from '../../store/chatStore'
 export default function MorningBriefCard({ data }) {
   if (!data) return null
   const { market_snapshot, institutional_flows, top_news, market_breadth } = data
-  const setDraft = useChatStore((s) => s.setDraft)
+  const sendDraft = useChatStore((s) => s.sendDraft)
 
   // Build contextual chips from actual brief data
   const posture    = market_snapshot?.posture ?? null
@@ -123,16 +123,17 @@ export default function MorningBriefCard({ data }) {
         </Section>
       )}
 
-      {/* Contextual action chips */}
+      {/* Contextual action chips (1-Click Instant Execution) */}
       {chips.length > 0 && (
         <div className="flex flex-wrap gap-2 pt-1 border-t border-border">
           {chips.map((chip) => (
             <button
               key={chip.label}
-              onClick={() => setDraft(chip.q)}
+              onClick={() => sendDraft(chip.q)}
               className="text-[11px] font-ui px-3 py-1.5 rounded-full border border-border
                          text-muted hover:text-text hover:border-amber/50 hover:bg-amber/5
-                         transition-colors cursor-pointer"
+                         transition-colors cursor-pointer shadow-xs"
+              title="Click to execute this follow-up query"
             >
               {chip.label}
             </button>

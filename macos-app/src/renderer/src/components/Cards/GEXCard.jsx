@@ -1,7 +1,7 @@
 import { useChatStore } from '../../store/chatStore'
 
 export default function GEXCard({ data }) {
-  const setDraft = useChatStore((s) => s.setDraft)
+  const sendDraft = useChatStore((s) => s.sendDraft)
   const d = data?.data ?? data ?? {}
 
   if (d.error) {
@@ -96,10 +96,11 @@ export default function GEXCard({ data }) {
             {chips.map((chip) => (
               <button
                 key={chip.label}
-                onClick={() => setDraft(chip.q)}
+                onClick={() => sendDraft(chip.q)}
                 className="text-[11px] font-ui px-3 py-1.5 rounded-full border border-border
                            text-muted hover:text-text hover:border-blue/50 hover:bg-blue/5
-                           transition-colors cursor-pointer"
+                           transition-colors cursor-pointer shadow-xs"
+                title="Click to execute this follow-up query"
               >
                 {chip.label}
               </button>

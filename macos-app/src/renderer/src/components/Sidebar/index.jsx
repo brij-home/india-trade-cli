@@ -33,6 +33,9 @@ export default function Sidebar() {
   const createSession = useChatStore((s) => s.createSession)
   const switchSession = useChatStore((s) => s.switchSession)
   const deleteSession = useChatStore((s) => s.deleteSession)
+  const showDashboard = useChatStore((s) => s.showDashboard)
+  const setShowDashboard = useChatStore((s) => s.setShowDashboard)
+  const sendDraft = useChatStore((s) => s.sendDraft)
   const [showBrokerPanel, setShowBrokerPanel] = useState(false)
   const [hoveredSession, setHoveredSession] = useState(null)
 
@@ -45,18 +48,32 @@ export default function Sidebar() {
       {/* Broker panel overlay */}
       {showBrokerPanel && <BrokerPanel onClose={() => setShowBrokerPanel(false)} />}
 
-      {/* New session button */}
-      <div className="px-3 pt-3 pb-2">
+      {/* Navigation: Overview Dashboard & New Session */}
+      <div className="px-3 pt-3 pb-2 space-y-1.5">
         <button
-          onClick={createSession}
-          className="w-full flex items-center gap-2 px-3 py-2 rounded-lg border border-border
+          onClick={() => setShowDashboard(true)}
+          className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg border text-[12px] font-ui transition-colors cursor-pointer ${
+            showDashboard
+              ? 'bg-amber/15 border-amber/40 text-amber font-semibold shadow-xs'
+              : 'border-border/60 text-muted hover:text-text hover:bg-elevated'
+          }`}
+          title="Return to Home / Overview Dashboard"
+        >
+          <span>🏠</span>
+          <span>Overview Dashboard</span>
+        </button>
+
+        <button
+          onClick={() => { setShowDashboard(false); createSession(); }}
+          className="w-full flex items-center gap-2 px-3 py-1.5 rounded-lg border border-border/60
                      text-[12px] font-ui text-muted hover:text-text hover:bg-elevated
                      transition-colors cursor-pointer"
+          title="Start a new analysis session"
         >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
             <path d="M12 5v14M5 12h14" />
           </svg>
-          New session
+          <span>New Session</span>
           <span className="ml-auto text-[10px] text-subtle font-ui">⌘N</span>
         </button>
       </div>
@@ -70,12 +87,12 @@ export default function Sidebar() {
               onMouseEnter={() => setHoveredSession(s.id)}
               onMouseLeave={() => setHoveredSession(null)}
               className={`group flex items-center rounded-lg cursor-pointer transition-colors
-                ${s.id === activeSessionId
+                ${s.id === activeSessionId && !showDashboard
                   ? 'bg-elevated text-text'
                   : 'text-muted hover:bg-elevated/50 hover:text-text'}`}
             >
               <button
-                onClick={() => switchSession(s.id)}
+                onClick={() => { setShowDashboard(false); switchSession(s.id); }}
                 className="flex-1 text-left px-3 py-2 text-[12px] font-ui truncate cursor-pointer"
               >
                 {s.title}
@@ -94,45 +111,51 @@ export default function Sidebar() {
         </div>
       </div>
 
-      {/* Quick Trading Tools */}
+      {/* Quick Trading Tools (1-Click Instant Execution) */}
       <div className="px-3 py-2 border-t border-border/50 bg-panel/30">
         <p className="text-[10px] uppercase font-ui tracking-wider text-muted mb-1.5 px-1">Institutional Tools</p>
         <div className="grid grid-cols-2 gap-1 text-[11px] font-ui">
           <button
-            onClick={() => useChatStore.getState().setDraft('brief')}
+            onClick={() => sendDraft('brief')}
             className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-muted hover:text-text hover:bg-elevated text-left transition-colors cursor-pointer"
+            title="Generate Morning Market Brief"
           >
             <span>🌅</span> Brief
           </button>
           <button
-            onClick={() => useChatStore.getState().setDraft('funnel nifty_50')}
+            onClick={() => sendDraft('scan')}
             className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-muted hover:text-text hover:bg-elevated text-left transition-colors cursor-pointer"
+            title="Scan NSE Sector Breadth & Breakouts"
+          >
+            <span>🌐</span> Breadth
+          </button>
+          <button
+            onClick={() => sendDraft('funnel nifty_50')}
+            className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-muted hover:text-text hover:bg-elevated text-left transition-colors cursor-pointer"
+            title="Smart Funnel 4-Stage Screener"
           >
             <span>🎯</span> Funnel
           </button>
           <button
-            onClick={() => useChatStore.getState().setDraft('rrg')}
+            onClick={() => sendDraft('rrg')}
             className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-muted hover:text-text hover:bg-elevated text-left transition-colors cursor-pointer"
+            title="Relative Rotation Graphs (RRG)"
           >
-            <span>🌐</span> RRG Sector
+            <span>📈</span> RRG
           </button>
           <button
-            onClick={() => useChatStore.getState().setDraft('forensic RELIANCE')}
+            onClick={() => sendDraft('flows')}
             className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-muted hover:text-text hover:bg-elevated text-left transition-colors cursor-pointer"
-          >
-            <span>🛡️</span> Forensic
-          </button>
-          <button
-            onClick={() => useChatStore.getState().setDraft('size NIFTY 24000 23600')}
-            className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-muted hover:text-text hover:bg-elevated text-left transition-colors cursor-pointer"
-          >
-            <span>⚖️</span> Sizer
-          </button>
-          <button
-            onClick={() => useChatStore.getState().setDraft('flows')}
-            className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-muted hover:text-text hover:bg-elevated text-left transition-colors cursor-pointer"
+            title="FII & DII Cash & Futures Flows"
           >
             <span>🌊</span> Flows
+          </button>
+          <button
+            onClick={() => sendDraft('forensic RELIANCE')}
+            className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-muted hover:text-text hover:bg-elevated text-left transition-colors cursor-pointer"
+            title="Forensic Accounting Audit"
+          >
+            <span>🛡️</span> Forensic
           </button>
         </div>
       </div>

@@ -43,7 +43,7 @@ export default function BigMoveCard({ data, onOpenOrderTicket }) {
   const opt = d.options_flow || {}
 
   const openInspector = useInspectorStore((s) => s.openInspector)
-  const setDraft = useChatStore((s) => s.setDraft)
+  const sendDraft = useChatStore((s) => s.sendDraft)
 
   const verdict = VERDICT_STYLES[d.prediction_verdict] || VERDICT_STYLES.CHOPPY_RANGE
   const timing = TIMING_BADGES[d.timing_trigger] || TIMING_BADGES.WAIT_FOR_CONFIRMATION
@@ -198,12 +198,16 @@ export default function BigMoveCard({ data, onOpenOrderTicket }) {
         </div>
       </div>
 
-      {/* Action Buttons */}
+      {/* Action Buttons (1-Click Instant Execution) */}
       <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
         <div className="flex items-center gap-2">
           <button
-            onClick={() => setDraft(`size ${d.symbol} ${d.ltp} ${d.invalidation_price}`)}
+            onClick={() => {
+              window.dispatchEvent(new CustomEvent('close-all-modals'))
+              sendDraft(`size ${d.symbol} ${d.ltp} ${d.invalidation_price}`)
+            }}
             className="px-2.5 py-1 rounded bg-panel hover:bg-elevated border border-border text-text text-xs font-ui transition-colors cursor-pointer"
+            title="Size position with volatility risk parity"
           >
             Size Position ⚖️
           </button>
@@ -216,8 +220,12 @@ export default function BigMoveCard({ data, onOpenOrderTicket }) {
         </div>
 
         <button
-          onClick={() => setDraft(`analyze ${d.symbol}`)}
+          onClick={() => {
+            window.dispatchEvent(new CustomEvent('close-all-modals'))
+            sendDraft(`analyze ${d.symbol}`)
+          }}
           className="px-3 py-1 rounded bg-amber hover:bg-amber/90 text-black font-ui font-bold text-xs transition-colors cursor-pointer shadow-xs"
+          title="Run Multi-Agent AI Debate"
         >
           AI Multi-Agent Debate 🤖
         </button>

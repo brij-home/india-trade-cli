@@ -39,6 +39,10 @@ export default function RRGCard({ data }) {
     }
   }
 
+  const handleOpenSector = (secName) => {
+    window.dispatchEvent(new CustomEvent('open-sector-drilldown', { detail: { sector: secName } }))
+  }
+
   // Count sectors per quadrant
   const counts = {
     LEADING: sectors.filter(s => s.quadrant === 'LEADING').length,
@@ -131,7 +135,7 @@ export default function RRGCard({ data }) {
             metricKey="rrg_sector_matrix"
           >
             <div
-              onClick={() => openInspector('rrg_sector_matrix', { symbol: activeStockAlign.symbol })}
+              onClick={() => handleOpenSector(activeStockAlign.sector)}
               className="w-full flex items-center justify-between bg-elevated/70 hover:bg-elevated border border-border/40 hover:border-amber/40 p-2.5 rounded text-xs font-ui cursor-pointer transition-colors"
             >
               <div className="flex items-center gap-2">
@@ -147,6 +151,7 @@ export default function RRGCard({ data }) {
                 </span>
                 <span className="text-muted text-[11px]">Tailwind Score:</span>
                 <span className="font-bold text-green font-mono">{activeStockAlign.tailwind_score}/100</span>
+                <span className="text-[10px] text-amber ml-1">Click to drill down →</span>
               </div>
             </div>
           </Tooltip>
@@ -164,7 +169,7 @@ export default function RRGCard({ data }) {
               metricKey="rrg_sector_matrix"
             />
           </div>
-          <span className="text-[10px] text-subtle">Center: 100 Neutral (Click dots to inspect)</span>
+          <span className="text-[10px] text-amber font-semibold">Click any sector node or row to see top stocks & contributing factors</span>
         </div>
 
         <div className="relative h-48 bg-elevated/80 border border-border/50 rounded-lg overflow-hidden flex items-center justify-center">
@@ -187,19 +192,19 @@ export default function RRGCard({ data }) {
             return (
               <Tooltip
                 key={sec.sector}
-                title={`NIFTY ${sec.sector}`}
-                content={`Ratio: ${sec.rs_ratio.toFixed(1)} | Momentum: ${sec.rs_momentum.toFixed(1)} | Quadrant: ${sec.quadrant}`}
+                title={`NIFTY ${sec.sector} · Click to Drilldown`}
+                content={`Ratio: ${sec.rs_ratio.toFixed(1)} | Momentum: ${sec.rs_momentum.toFixed(1)} | Quadrant: ${sec.quadrant}. Click to view top contributing stocks.`}
                 metricKey="rrg_sector_matrix"
               >
                 <div
                   style={{ left: `${xPercent}%`, top: `${yPercent}%` }}
-                  onClick={() => openInspector('rrg_sector_matrix', { sector: sec.sector, ...sec })}
+                  onClick={() => handleOpenSector(sec.sector)}
                   className="absolute -translate-x-1/2 -translate-y-1/2 group cursor-pointer"
                 >
                   <div className={`w-4 h-4 rounded-full ${qCfg.bg} border-2 ${qCfg.border} flex items-center justify-center shadow-xs transition-transform group-hover:scale-135`}>
                     <div className={`w-1.5 h-1.5 rounded-full ${qCfg.text === 'text-green' ? 'bg-green' : qCfg.text === 'text-red' ? 'bg-red' : qCfg.text === 'text-blue' ? 'bg-blue' : 'bg-amber'}`} />
                   </div>
-                  <span className="absolute left-4.5 top-0 -translate-y-1/2 text-[9px] font-bold font-mono bg-panel/95 px-1.5 py-0.5 rounded border border-border/60 text-text whitespace-nowrap shadow-xs pointer-events-none group-hover:border-amber">
+                  <span className="absolute left-4.5 top-0 -translate-y-1/2 text-[9px] font-bold font-mono bg-panel/95 px-1.5 py-0.5 rounded border border-border/60 text-text whitespace-nowrap shadow-xs pointer-events-none group-hover:border-amber group-hover:text-amber">
                     {sec.sector}
                   </span>
                 </div>
@@ -219,6 +224,7 @@ export default function RRGCard({ data }) {
               <th className="pb-1.5 font-medium text-right">RS-Mom</th>
               <th className="pb-1.5 font-medium text-right">1D Chg</th>
               <th className="pb-1.5 font-medium text-right">Quadrant</th>
+              <th className="pb-1.5 font-medium text-right">Action</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border/30">
@@ -228,11 +234,11 @@ export default function RRGCard({ data }) {
               return (
                 <tr
                   key={s.sector}
-                  onClick={() => openInspector('rrg_sector_matrix', { sector: s.sector, ...s })}
-                  className="hover:bg-elevated/70 transition-colors cursor-pointer"
-                  title="Click to view sector model details"
+                  onClick={() => handleOpenSector(s.sector)}
+                  className="hover:bg-elevated/70 transition-colors cursor-pointer group"
+                  title="Click to view top stocks and contributing factors in this sector"
                 >
-                  <td className="py-2 font-semibold text-text font-mono flex items-center gap-1.5">
+                  <td className="py-2 font-semibold text-text font-mono flex items-center gap-1.5 group-hover:text-amber">
                     <span className="text-amber text-xs">◆</span>
                     <span>{s.sector}</span>
                   </td>
@@ -245,6 +251,9 @@ export default function RRGCard({ data }) {
                     <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${qCfg.bg} ${qCfg.text}`}>
                       {s.quadrant}
                     </span>
+                  </td>
+                  <td className="py-2 text-right font-mono text-amber text-[11px] group-hover:underline">
+                    Stocks →
                   </td>
                 </tr>
               )

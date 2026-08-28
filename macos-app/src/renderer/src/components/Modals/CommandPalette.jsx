@@ -41,7 +41,7 @@ const QUICK_ACTIONS = [
 export default function CommandPalette({ isOpen, onClose, onOpenOrderTicket }) {
   const [query, setQuery] = useState('')
   const [selectedIndex, setSelectedIndex] = useState(0)
-  const setDraft = useChatStore((s) => s.setDraft)
+  const sendDraft = useChatStore((s) => s.sendDraft)
   const inputRef = useRef(null)
 
   // Focus input on open
@@ -87,12 +87,12 @@ export default function CommandPalette({ isOpen, onClose, onOpenOrderTicket }) {
   }
 
   const selectItem = (item) => {
-    if (item.type === 'action') {
-      setDraft(item.cmd)
-    } else if (item.type === 'symbol') {
-      setDraft(`analyze ${item.symbol}`)
-    }
     onClose()
+    if (item.type === 'action') {
+      sendDraft(item.cmd)
+    } else if (item.type === 'symbol') {
+      sendDraft(`analyze ${item.symbol}`)
+    }
   }
 
   return (

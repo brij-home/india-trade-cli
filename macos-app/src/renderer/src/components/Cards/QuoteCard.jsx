@@ -4,7 +4,7 @@ import { useChatStore } from '../../store/chatStore'
 
 export default function QuoteCard({ data }) {
   const [showChart, setShowChart] = useState(false)
-  const setDraft = useChatStore((s) => s.setDraft)
+  const sendDraft = useChatStore((s) => s.sendDraft)
 
   if (!data) return <Card><p className="text-muted text-sm font-ui">No quote data.</p></Card>
 
@@ -72,23 +72,26 @@ export default function QuoteCard({ data }) {
         )}
       </div>
 
-      {/* Quick Action Chips */}
+      {/* Quick Action Chips (1-Click Execution) */}
       <div className="mt-3 pt-3 border-t border-border/40 flex flex-wrap gap-1.5 text-[11px] font-ui">
         <button
-          onClick={() => setDraft(`analyze ${symbol}`)}
-          className="bg-amber/10 text-amber border border-amber/30 hover:bg-amber/20 px-2 py-1 rounded transition-colors"
+          onClick={() => sendDraft(`analyze ${symbol}`)}
+          className="bg-amber/10 text-amber border border-amber/30 hover:bg-amber/20 px-2.5 py-1 rounded-lg transition-colors cursor-pointer font-semibold shadow-xs"
+          title={`Launch full multi-agent AI debate for ${symbol}`}
         >
           ⚡ Multi-Agent Analysis
         </button>
         <button
-          onClick={() => setDraft(`oi ${symbol}`)}
-          className="bg-panel hover:bg-elevated text-text border border-border/60 px-2 py-1 rounded transition-colors"
+          onClick={() => sendDraft(`oi ${symbol}`)}
+          className="bg-panel hover:bg-elevated text-text border border-border/60 px-2.5 py-1 rounded-lg transition-colors cursor-pointer"
+          title={`Analyze options & OI structure for ${symbol}`}
         >
           📊 Options &amp; OI
         </button>
         <button
-          onClick={() => setDraft(`backtest ${symbol} rsi`)}
-          className="bg-panel hover:bg-elevated text-text border border-border/60 px-2 py-1 rounded transition-colors"
+          onClick={() => sendDraft(`backtest ${symbol} rsi`)}
+          className="bg-panel hover:bg-elevated text-text border border-border/60 px-2.5 py-1 rounded-lg transition-colors cursor-pointer"
+          title={`Run RSI backtest on ${symbol}`}
         >
           🧪 Backtest
         </button>

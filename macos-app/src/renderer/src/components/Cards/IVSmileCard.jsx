@@ -8,7 +8,7 @@ export default function IVSmileCard({ data }) {
   const symbol = d.symbol ?? '—'
   const expiry = d.expiry ?? ''
   const rows = (d.rows ?? []).slice().sort((a, b) => a.strike - b.strike)
-  const setDraft = useChatStore((s) => s.setDraft)
+  const sendDraft = useChatStore((s) => s.sendDraft)
 
   function ivValid(v) { return Number(v ?? 0) >= IV_FLOOR }
 
@@ -132,15 +132,16 @@ export default function IVSmileCard({ data }) {
         </table>
       )}
 
-      {/* Action chips */}
+      {/* Action chips (1-Click Instant Execution) */}
       <div className="flex flex-wrap gap-2 pt-1">
         {chips.map((chip) => (
           <button
             key={chip.label}
-            onClick={() => setDraft(chip.q)}
+            onClick={() => sendDraft(chip.q)}
             className="text-[11px] font-ui px-3 py-1.5 rounded-full border border-border
                        text-muted hover:text-text hover:border-blue/50 hover:bg-blue/5
-                       transition-colors cursor-pointer"
+                       transition-colors cursor-pointer shadow-xs"
+            title="Click to execute this follow-up query"
           >
             {chip.label}
           </button>

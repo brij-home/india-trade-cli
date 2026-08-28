@@ -10,6 +10,7 @@ import CommandPalette from './components/Modals/CommandPalette'
 import OrderTicketModal from './components/Modals/OrderTicketModal'
 import MetricExplainerModal from './components/Modals/MetricExplainerModal'
 import TopOpportunitiesModal from './components/Modals/TopOpportunitiesModal'
+import SectorDrilldownModal from './components/Modals/SectorDrilldownModal'
 
 function useTheme() {
   const [theme, setThemeState] = useState(() => {
@@ -51,6 +52,18 @@ export default function App() {
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false)
   const [isOrderTicketOpen, setIsOrderTicketOpen] = useState(false)
   const [isTopOppsOpen, setIsTopOppsOpen] = useState(false)
+  const [sectorDrilldown, setSectorDrilldown] = useState({ isOpen: false, sector: null })
+
+  // Listen for open-sector-drilldown events
+  useEffect(() => {
+    const onOpenSector = (e) => {
+      if (e.detail?.sector) {
+        setSectorDrilldown({ isOpen: true, sector: e.detail.sector })
+      }
+    }
+    window.addEventListener('open-sector-drilldown', onOpenSector)
+    return () => window.removeEventListener('open-sector-drilldown', onOpenSector)
+  }, [])
 
   useEffect(() => {
     // Web mode — no Electron IPC, just check if server is ready
@@ -249,6 +262,11 @@ export default function App() {
       <TopOpportunitiesModal
         isOpen={isTopOppsOpen}
         onClose={() => setIsTopOppsOpen(false)}
+      />
+      <SectorDrilldownModal
+        isOpen={sectorDrilldown.isOpen}
+        sector={sectorDrilldown.sector}
+        onClose={() => setSectorDrilldown({ isOpen: false, sector: null })}
       />
       <MetricExplainerModal />
     </div>

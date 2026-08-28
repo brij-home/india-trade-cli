@@ -228,6 +228,8 @@ export default function InputBar() {
   const activeSessionId   = useChatStore((s) => s.activeSessionId)
   const draft             = useChatStore((s) => s.draft)
   const setDraft          = useChatStore((s) => s.setDraft)
+  const autoSubmit        = useChatStore((s) => s.autoSubmit)
+  const clearAutoSubmit   = useChatStore((s) => s.clearAutoSubmit)
   const streamCancel      = useChatStore((s) => s.streamCancel)
   const activeStreamId    = useChatStore((s) => s.activeStreamId)
   const setPendingContext = useChatStore((s) => s.setPendingContext)
@@ -241,14 +243,22 @@ export default function InputBar() {
   const isStreaming = isLoading && !!streamCancel
   const inputRef = useRef(null)
 
-  // When a card pre-fills the draft, populate the input and focus it
+  // When a card pre-fills the draft or triggers auto-execution
   useEffect(() => {
     if (draft) {
-      setValue(draft)
+      const textToRun = draft
+      const shouldAuto = autoSubmit
+      setValue(textToRun)
       setDraft('')
+      clearAutoSubmit()
       inputRef.current?.focus()
+      if (shouldAuto) {
+        setTimeout(() => {
+          submit(textToRun)
+        }, 20)
+      }
     }
-  }, [draft])
+  }, [draft, autoSubmit])
 
   function runStreaming(symbol, exchange) {
     const msgId = Date.now() + 1
@@ -324,8 +334,8 @@ export default function InputBar() {
     }
   }
 
-  async function submit() {
-    const text = value.trim()
+  async function submit(customText = null) {
+    const text = (customText != null ? customText : value).trim()
     if (!text || !ready) return
 
     // #113 — mid-stream context injection: POST hint to running analysis
@@ -352,6 +362,7 @@ export default function InputBar() {
 
     if (isLoading) return
 
+    useChatStore.getState().setShowDashboard(false)
     setValue('')
     addUserMessage(text)
 

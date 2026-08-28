@@ -4,7 +4,7 @@ import { useChatStore } from '../../store/chatStore'
 
 export default function MetricExplainerModal() {
   const { isOpen, activeMetric, contextData, closeInspector } = useInspectorStore()
-  const setDraft = useChatStore((s) => s.setDraft)
+  const sendDraft = useChatStore((s) => s.sendDraft)
 
   // Keyboard shortcut: Escape to close
   useEffect(() => {
@@ -23,8 +23,8 @@ export default function MetricExplainerModal() {
   const sym = contextData?.symbol || 'RELIANCE'
 
   const handleAction = (cmd) => {
-    setDraft(cmd)
     closeInspector()
+    sendDraft(cmd)
   }
 
   return (

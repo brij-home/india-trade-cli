@@ -228,6 +228,74 @@ def get_stock_sector(symbol: str) -> tuple[str, str]:
     return _STOCK_TO_SECTOR.get(clean, ("broad_market", "Broad Market"))
 
 
+def resolve_sector_taxonomy(query: str) -> tuple[str, dict[str, Any]]:
+    """
+    Robust sector resolver mapping various names, symbols, or queries (e.g. 'IT', 'NIFTY IT', 'Bank', 'Metals', 'Auto')
+    to (canonical_sector_id, sector_info).
+    """
+    if not query:
+        return "banking", SECTOR_TAXONOMY["banking"]
+
+    q = query.strip().lower().replace("nifty", "").replace("^", "").replace("_", " ").strip()
+
+    # Exact or alias mapping
+    alias_map = {
+        "bank": "banking",
+        "banking": "banking",
+        "banknifty": "banking",
+        "fin services": "banking",
+        "financial services": "banking",
+        "financials": "banking",
+        "psu bank": "banking",
+        "psubank": "banking",
+        "it": "it",
+        "tech": "it",
+        "technology": "it",
+        "software": "it",
+        "auto": "auto",
+        "automobile": "auto",
+        "automobiles": "auto",
+        "motor": "auto",
+        "defence": "defence",
+        "defense": "defence",
+        "aerospace": "defence",
+        "energy": "energy",
+        "power": "energy",
+        "oil": "energy",
+        "gas": "energy",
+        "metal": "metals",
+        "metals": "metals",
+        "mining": "metals",
+        "pharma": "pharma",
+        "healthcare": "pharma",
+        "health": "pharma",
+        "fmcg": "fmcg",
+        "consumption": "fmcg",
+        "retail": "fmcg",
+        "infra": "infra",
+        "realty": "infra",
+        "real estate": "infra",
+        "capital goods": "infra",
+        "chem": "chemicals",
+        "chemical": "chemicals",
+        "chemicals": "chemicals",
+        "telecom": "telecom",
+        "media": "telecom",
+        "ports": "telecom",
+        "logistics": "telecom",
+    }
+
+    if q in alias_map and alias_map[q] in SECTOR_TAXONOMY:
+        key = alias_map[q]
+        return key, SECTOR_TAXONOMY[key]
+
+    for k, info in SECTOR_TAXONOMY.items():
+        if k in q or q in k or q in info["name"].lower() or q in info.get("index_symbol", "").lower():
+            return k, info
+
+    return "banking", SECTOR_TAXONOMY["banking"]
+
+
 def get_taxonomy_categories() -> list[dict[str, Any]]:
     """
     Returns all sector categories and thematic presets with their counts and icons.

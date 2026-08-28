@@ -56,18 +56,105 @@ export default function ChatArea() {
   const isLoading = useChatStore((s) => s.isLoading)
   const sidecarError = useChatStore((s) => s.sidecarError)
   const port = useChatStore((s) => s.port)
-  const setDraft = useChatStore((s) => s.setDraft)
+  const sendDraft = useChatStore((s) => s.sendDraft)
+  const showDashboard = useChatStore((s) => s.showDashboard)
+  const setShowDashboard = useChatStore((s) => s.setShowDashboard)
+  const createSession = useChatStore((s) => s.createSession)
+  const activeSessionId = useChatStore((s) => s.activeSessionId)
+  const sessions = useChatStore((s) => s.sessions)
   const bottomRef = useRef(null)
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
+  const isDashboardVisible = messages.length === 0 || showDashboard
+
   return (
     <div className="flex-1 overflow-y-auto px-4 md:px-8 py-6 space-y-5 bg-surface text-text">
-      {/* Welcome Dashboard Empty State */}
-      {messages.length === 0 && (
-        <div className="max-w-4xl mx-auto flex flex-col items-center justify-center min-h-[75vh] py-8 text-center space-y-6">
+      {/* Active Navigation Header (when in Chat / Cards view) */}
+      {!isDashboardVisible && (
+        <div className="sticky top-0 z-10 flex items-center justify-between gap-3 bg-surface/90 backdrop-blur border-b border-border/60 pb-3 mb-2 text-xs font-ui">
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowDashboard(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-panel hover:bg-elevated border border-border text-text font-medium transition-colors cursor-pointer shadow-xs"
+              title="Return to Home / Overview Dashboard"
+            >
+              <span>🏠</span>
+              <span>Dashboard</span>
+            </button>
+            <div className="h-4 w-[1px] bg-border/80" />
+            <span className="text-muted text-[11px] font-mono truncate max-w-[140px] sm:max-w-[200px]">
+              {sessions[activeSessionId]?.title || 'Analysis'}
+            </span>
+          </div>
+
+          {/* Quick Jump Launchers */}
+          <div className="flex items-center gap-1.5 overflow-x-auto">
+            <button
+              onClick={() => window.dispatchEvent(new CustomEvent('open-top-opportunities'))}
+              className="px-2.5 py-1 rounded-lg bg-green/10 hover:bg-green/20 text-green border border-green/30 text-[11px] font-semibold flex items-center gap-1 cursor-pointer transition-colors flex-shrink-0"
+              title="Open Market-Aware High-Conviction Radar"
+            >
+              <span>🎯</span>
+              <span className="hidden sm:inline">Top</span> Radar
+            </button>
+            <button
+              onClick={() => sendDraft('scan')}
+              className="px-2.5 py-1 rounded-lg bg-panel hover:bg-elevated text-text border border-border text-[11px] font-medium flex items-center gap-1 cursor-pointer transition-colors flex-shrink-0"
+              title="Launch NSE Breadth & Breakout Heatmap"
+            >
+              <span>🌐</span>
+              <span className="hidden sm:inline">Sector</span> Breadth
+            </button>
+            <button
+              onClick={() => sendDraft('flows')}
+              className="px-2.5 py-1 rounded-lg bg-panel hover:bg-elevated text-text border border-border text-[11px] font-medium flex items-center gap-1 cursor-pointer transition-colors flex-shrink-0"
+              title="Track Institutional FII/DII Flows"
+            >
+              <span>🌊</span>
+              <span>Flows</span>
+            </button>
+            <button
+              onClick={() => sendDraft('brief')}
+              className="px-2.5 py-1 rounded-lg bg-panel hover:bg-elevated text-text border border-border text-[11px] font-medium flex items-center gap-1 cursor-pointer transition-colors flex-shrink-0"
+              title="Generate Morning Market Brief"
+            >
+              <span>🌅</span>
+              <span className="hidden sm:inline">Morning</span> Brief
+            </button>
+            <button
+              onClick={createSession}
+              className="p-1.5 rounded-lg bg-panel hover:bg-elevated text-muted hover:text-text border border-border text-[11px] cursor-pointer transition-colors flex-shrink-0"
+              title="New Analysis Session (⌘N)"
+            >
+              ＋
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Welcome Dashboard Overview */}
+      {isDashboardVisible && (
+        <div className="max-w-4xl mx-auto flex flex-col items-center justify-center min-h-[75vh] py-8 text-center space-y-6 animate-fade-slide">
+          {/* If there are existing messages in session, show resume button */}
+          {messages.length > 0 && (
+            <div className="w-full flex items-center justify-between bg-elevated/80 border border-border px-4 py-2.5 rounded-xl shadow-xs">
+              <div className="flex items-center gap-2 text-xs font-ui text-left">
+                <span className="w-2 h-2 rounded-full bg-green animate-pulse" />
+                <span className="text-text font-semibold">{sessions[activeSessionId]?.title || 'Active Session'}</span>
+                <span className="text-muted">({messages.length} analysis cards loaded)</span>
+              </div>
+              <button
+                onClick={() => setShowDashboard(false)}
+                className="px-3 py-1.5 bg-amber hover:bg-amber-light text-black font-bold rounded-lg text-xs font-ui cursor-pointer transition-colors shadow-xs"
+              >
+                ← Return to Active View
+              </button>
+            </div>
+          )}
+
           {/* Logo & Headline */}
           <div className="space-y-2">
             <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-amber/10 border border-amber/30 text-amber text-2xl shadow-sm mb-1">
@@ -81,33 +168,36 @@ export default function ChatArea() {
             </p>
           </div>
 
-          {/* Quick Tickers Bar */}
+          {/* Quick Tickers Bar (1-Click Instant Execution) */}
           <div className="flex flex-wrap items-center justify-center gap-1.5 pt-1">
             <span className="text-xs text-muted font-ui mr-1">Trending:</span>
             {POPULAR_TICKERS.map((ticker) => (
               <button
                 key={ticker.label}
-                onClick={() => setDraft(ticker.cmd)}
-                className="px-2.5 py-1 rounded-full text-xs font-mono bg-panel hover:bg-elevated text-text border border-border/80 hover:border-amber/50 transition-all cursor-pointer shadow-xs"
+                onClick={() => sendDraft(ticker.cmd)}
+                className="px-2.5 py-1 rounded-full text-xs font-mono bg-panel hover:bg-elevated text-text border border-border/80 hover:border-amber/50 transition-all cursor-pointer shadow-xs hover:scale-102"
+                title={`Instant scan for ${ticker.label}`}
               >
                 {ticker.label}
               </button>
             ))}
           </div>
 
-          {/* Quick Action Grid */}
+          {/* Quick Action Grid (1-Click Instant Execution) */}
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 w-full text-left pt-2">
             {QUICK_PROMPTS.map((item) => (
               <button
                 key={item.title}
-                onClick={() => setDraft(item.cmd)}
+                onClick={() => sendDraft(item.cmd)}
                 className="group relative p-4 rounded-xl bg-panel hover:bg-elevated border border-border/80 hover:border-amber/40 transition-all duration-200 shadow-xs hover:shadow-md cursor-pointer flex flex-col justify-between"
+                title={`Launch ${item.title}`}
               >
                 <div>
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-xl p-2 rounded-lg bg-surface border border-border/50">{item.icon}</span>
-                    <span className="text-[10px] font-mono text-muted group-hover:text-amber transition-colors">
-                      {item.cmd} ↗
+                    <span className="text-[10px] font-mono text-muted group-hover:text-amber transition-colors flex items-center gap-0.5">
+                      <span>{item.cmd}</span>
+                      <span>⚡</span>
                     </span>
                   </div>
                   <h3 className="text-sm font-semibold font-ui text-text group-hover:text-amber transition-colors">
@@ -134,8 +224,8 @@ export default function ChatArea() {
         </div>
       )}
 
-      {/* Message list */}
-      {messages.map((msg) => (
+      {/* Message list (when in chat view) */}
+      {!isDashboardVisible && messages.map((msg) => (
         <Message key={msg.id} message={msg} />
       ))}
 

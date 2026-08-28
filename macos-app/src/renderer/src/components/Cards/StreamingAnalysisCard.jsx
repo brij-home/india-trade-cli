@@ -51,7 +51,7 @@ const STEP_META = {
 export default function StreamingAnalysisCard({ data }) {
   const cancelStream      = useChatStore((s) => s.cancelStream)
   const streamCancel      = useChatStore((s) => s.streamCancel)
-  const setDraft          = useChatStore((s) => s.setDraft)
+  const sendDraft         = useChatStore((s) => s.sendDraft)
   const pendingContext    = useChatStore((s) => s.pendingContext)
   const clearPendingContext = useChatStore((s) => s.clearPendingContext)
   const port              = useChatStore((s) => s.port)
@@ -237,7 +237,7 @@ export default function StreamingAnalysisCard({ data }) {
         <ActionChips
           symbol={symbol}
           analysts={analysts}
-          setDraft={setDraft}
+          sendDraft={sendDraft}
           onAsk={(q) => {
             setFollowupValue(q)
             setTimeout(() => followupRef.current?.focus(), 50)
@@ -486,7 +486,7 @@ function TradePlanCard({ name, plan }) {
 
 // ── #104 Action chips ─────────────────────────────────────────
 
-function ActionChips({ symbol, analysts, setDraft, onAsk }) {
+function ActionChips({ symbol, analysts, sendDraft, onAsk }) {
   // Derive majority verdict from analysts
   const verdictCounts = {}
   for (const a of analysts) {
@@ -497,11 +497,11 @@ function ActionChips({ symbol, analysts, setDraft, onAsk }) {
   const viewWord   = topVerdict === 'BEARISH' ? 'bearish' : topVerdict === 'NEUTRAL' ? 'neutral' : 'bullish'
 
   const chips = [
-    { label: '🔔 Set alert',       action: () => setDraft(`alert ${symbol} RSI below 35`) },
+    { label: '🔔 Set alert',       action: () => sendDraft(`alert ${symbol} RSI below 35`) },
     { label: '📊 Options strategy', action: () => onAsk(`Suggest a specific options strategy for ${symbol} given the ${viewWord} outlook. Include strikes, expiry, and max risk.`) },
     { label: '💰 Entry & target',   action: () => onAsk(`What is the ideal entry price, stop-loss, and target for ${symbol} given this analysis?`) },
     { label: '⚠️ Key risks',        action: () => onAsk(`What are the biggest risks that could invalidate this ${viewWord} thesis on ${symbol}?`) },
-    { label: '🔄 Re-analyze',       action: () => setDraft(`analyze ${symbol}`) },
+    { label: '🔄 Re-analyze',       action: () => sendDraft(`analyze ${symbol}`) },
   ]
 
   return (

@@ -19,7 +19,7 @@ import concurrent.futures
 import datetime
 import os
 import sys
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, fields
 from typing import Any, Optional
 
 # Fix Windows charmap / cp1252 codec errors for unicode console prints
@@ -75,6 +75,15 @@ class HighConvictionOpportunity:
     data_source: str = "HISTORICAL_EOD"  # "LIVE_TICK" | "HISTORICAL_EOD"
     as_of_date: str = ""
     dataset_info: str = "NSE Daily OHLCV (250 Bars Lookback)"
+    expected_timeline: str = "3–10 Trading Days (Swing Momentum)"
+    target_1_timeline: str = "2–5 Trading Days"
+    target_2_timeline: str = "6–10 Trading Days"
+    time_stop_days: int = 10
+    profit_booking_plan: str = ""
+    eligibility_status: str = "READY"  # "READY" | "STALK" | "STAND_DOWN"
+    eligibility_label: str = "🟢 Top Pick (Ready)"
+    why_rationale: str = ""
+    contributing_factors: dict[str, Any] = field(default_factory=dict)
     smc_signals: list[str] = field(default_factory=list)
     tags: list[str] = field(default_factory=list)
 
@@ -118,20 +127,34 @@ def _evaluate_single_stock(
 ) -> Optional[HighConvictionOpportunity]:
     """
     Evaluates a single ticker across the 5 quantitative pillars and computes conviction score.
+    Reuses historical OHLCV data across all analyzers to prevent redundant external fetches.
     """
     try:
+        # Fetch OHLCV data once per stock (or reuse data_override)
+        df = data_override
+        if df is None or len(df) == 0:
+            try:
+                from market.history import get_ohlcv
+
+                df = get_ohlcv(symbol, exchange=exchange, interval="day", days=250)
+            except Exception:
+                df = None
+
+        if df is None or len(df) < 10:
+            return None
+
         # 1. Price Action & Market Structure
-        ms = analyze_market_structure(symbol, exchange=exchange, df=data_override)
+        ms = analyze_market_structure(symbol, exchange=exchange, df=df)
         if not ms or ms.ltp <= 0:
             return None
 
         ltp = ms.ltp
 
         # 2. Volume Profile & RVOL
-        vp = analyze_volume_profile(symbol, exchange=exchange, df=data_override)
+        vp = analyze_volume_profile(symbol, exchange=exchange, df=df)
 
         # 3. Multibagger & Minervini Trend Template
-        mb = scan_multibagger_opportunity(symbol, exchange=exchange, df=data_override)
+        mb = scan_multibagger_opportunity(symbol, exchange=exchange, df=df)
 
         # 4. Sector Rotation & Alignment
         sector_info = get_stock_sector_alignment(symbol)
@@ -320,6 +343,69 @@ def _evaluate_single_stock(
         data_source = "HISTORICAL_EOD"
         dataset_info = f"NSE Daily OHLCV (250 Bars Lookback · As of {as_of_date})"
 
+        # ── Expected Timelines & Profit-Booking Playbook ──────────────
+        if setup_type in ("VCP_CONTRACTION", "STAGE_2_MARKUP"):
+            expected_timeline = "3–10 Trading Days (Swing Momentum)"
+            t1_timeline = "2–5 Trading Days"
+            t2_timeline = "6–10 Trading Days"
+            time_stop_days = 10
+        elif setup_type in ("SMC_ORDER_BLOCK", "LIQUIDITY_SWEEP", "CHOCH_REVERSAL"):
+            expected_timeline = "2–7 Trading Days (Swing Reversal)"
+            t1_timeline = "1–3 Trading Days"
+            t2_timeline = "4–7 Trading Days"
+            time_stop_days = 7
+        elif setup_type == "MULTIBAGGER_STAGE2":
+            expected_timeline = "2–6 Weeks (Positional Trend)"
+            t1_timeline = "1–2 Weeks"
+            t2_timeline = "3–6 Weeks"
+            time_stop_days = 20
+        else:
+            expected_timeline = "3–10 Trading Days (Swing Momentum)"
+            t1_timeline = "2–5 Trading Days"
+            t2_timeline = "6–10 Trading Days"
+            time_stop_days = 10
+
+        profit_booking_plan = (
+            f"Scale out 50% at Target 1 (₹{target_1:,.2f}), move SL to Breakeven (+0.2%), "
+            f"and trail remainder via Daily 20-EMA / 3.0×ATR to Target 2 (₹{target_2:,.2f})."
+        )
+
+        # ── Eligibility Classification & Institutional Rationale ──────
+        if conviction_score >= 70 and (vp.rvol_20d >= 1.3 or mb.weinstein_stage == "STAGE_2_MARKUP" or ms.choch_detected or mb.vcp_detected) and not forensic.governance_red_flags:
+            eligibility_status = "READY"
+            eligibility_label = "🟢 TOP PICK (READY TO EXECUTE)"
+            stage_str = mb.weinstein_stage.replace('_', ' ').title() if mb.weinstein_stage else 'Structural Markup'
+            why_rationale = (
+                f"🟢 Top Pick: Confirmed {stage_str} with {mb.trend_template_passed}/8 Minervini criteria passed, "
+                f"{vp.rvol_20d:.1f}x institutional RVOL surge, clean balance sheet (Grade {forensic.quality_rating}), "
+                f"and parent sector {sector_name} leading momentum in {sector_quadrant} quadrant."
+            )
+        elif conviction_score >= 50 or mb.trend_template_passed >= 5:
+            eligibility_status = "STALK"
+            eligibility_label = "🟡 WATCHLIST / STALK TRIGGER"
+            why_rationale = (
+                f"🟡 Stalking Setup: Solid baseline passing {mb.trend_template_passed}/8 trend template rules with {ms.regime.lower()} structure, "
+                f"but volume is coiling ({vp.rvol_20d:.1f}x RVOL). Wait for volume breakout confirmation above ₹{entry_price:,.2f}."
+            )
+        else:
+            eligibility_status = "STAND_DOWN"
+            eligibility_label = "⚪ AVOID / LOW CONVICTION"
+            why_rationale = (
+                f"⚪ Low Conviction / Avoid: Sub-optimal relative strength vs peer group ({mb.trend_template_passed}/8 trend criteria passed) "
+                f"or facing rotational sector headwinds in {sector_quadrant} quadrant."
+            )
+
+        contributing_factors = {
+            "stage": mb.weinstein_stage.replace('_', ' ').title() if mb.weinstein_stage else "Stage 2 Markup",
+            "trend_template": f"{mb.trend_template_passed}/8 Criteria Passed",
+            "rvol": f"{vp.rvol_20d:.1f}x",
+            "smc_structure": ms.choch_type if ms.choch_detected else ms.bos_type if ms.bos_detected else ms.regime,
+            "forensic_grade": f"Grade {forensic.quality_rating}",
+            "sector_quadrant": sector_quadrant,
+            "piotroski_f": int(getattr(forensic, "piotroski_f_score", 7) or 7),
+            "altman_z": round(float(getattr(forensic, "altman_z_score", 3.2) or 3.2), 2),
+        }
+
         return HighConvictionOpportunity(
             rank=0,  # assigned during sorting
             symbol=symbol,
@@ -349,6 +435,15 @@ def _evaluate_single_stock(
             data_source=data_source,
             as_of_date=as_of_date,
             dataset_info=dataset_info,
+            expected_timeline=expected_timeline,
+            target_1_timeline=t1_timeline,
+            target_2_timeline=t2_timeline,
+            time_stop_days=time_stop_days,
+            profit_booking_plan=profit_booking_plan,
+            eligibility_status=eligibility_status,
+            eligibility_label=eligibility_label,
+            why_rationale=why_rationale,
+            contributing_factors=contributing_factors,
             smc_signals=smc_signals,
             tags=tags[:4],
         )
@@ -374,8 +469,16 @@ def scan_high_conviction_opportunities(
     if use_cache:
         cached = cache_get(cache_key, namespace="high_conviction", max_age_seconds=600)  # 10m cache
         if cached and isinstance(cached, dict):
-            # Reconstruct result from cached dict
-            opps = [HighConvictionOpportunity(**o) for o in cached.get("opportunities", []) if isinstance(o, dict)]
+            # Reconstruct result from cached dict with field safety
+            valid_fields = {f.name for f in fields(HighConvictionOpportunity)}
+            opps = []
+            for o in cached.get("opportunities", []):
+                if isinstance(o, dict):
+                    clean_o = {k: v for k, v in o.items() if k in valid_fields}
+                    try:
+                        opps.append(HighConvictionOpportunity(**clean_o))
+                    except Exception:
+                        pass
             if len(opps) > 0:
                 return HighConvictionScanResult(
                     timestamp=cached.get("timestamp", now_ist.strftime("%d %b %Y, %I:%M %p IST")),

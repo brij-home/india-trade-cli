@@ -60,27 +60,40 @@ def get_ohlcv(
 
     # Normalize interval alias
     kite_interval = INTERVAL_MAP.get(interval, interval)
+    clean_sym = symbol.upper().replace(".NS", "").replace("NSE:", "").strip()
+    cache_key = f"ohlcv_{clean_sym}_{exchange}_{kite_interval}_{days}"
+
+    # Fast Cache Layer: Check SQLite analysis_cache for recent daily candles (15m TTL) to eliminate repeated network calls
+    raw = None
+    if kite_interval == "day":
+        try:
+            from engine.analysis_cache import cache_get
+            cached_rows = cache_get(cache_key, namespace="history", max_age_seconds=900)
+            if cached_rows and isinstance(cached_rows, list) and len(cached_rows) >= 10:
+                raw = cached_rows
+        except Exception:
+            pass
 
     # Data cascade: broker API → yfinance → disk cache. No mock/synthetic data.
-    raw = None
-    try:
-        from brokers.session import get_broker
+    if not raw:
+        try:
+            from brokers.session import get_broker
 
-        broker = get_broker()
-        # Only use broker for real data — skip if it's the mock broker
-        if not getattr(broker, "_is_mock", False):
-            raw = broker.get_historical_data(
-                symbol=symbol,
-                exchange=exchange,
-                interval=kite_interval,
-                from_date=from_date,
-                to_date=to_date,
-            )
-        else:
-            # Mock broker: still use yfinance for real market data
-            raw = _yfinance_fallback(symbol, exchange, kite_interval, from_date, to_date)
-    except Exception:
-        pass
+            broker = get_broker()
+            # Only use broker for real data — skip if it's the mock broker
+            if not getattr(broker, "_is_mock", False):
+                raw = broker.get_historical_data(
+                    symbol=symbol,
+                    exchange=exchange,
+                    interval=kite_interval,
+                    from_date=from_date,
+                    to_date=to_date,
+                )
+            else:
+                # Mock broker: still use yfinance for real market data
+                raw = _yfinance_fallback(symbol, exchange, kite_interval, from_date, to_date)
+        except Exception:
+            pass
 
     if not raw:
         raw = _yfinance_fallback(symbol, exchange, kite_interval, from_date, to_date)
@@ -91,6 +104,14 @@ def get_ohlcv(
     if not raw:
         # Tier 3: disk cache — last-resort when both broker and yfinance fail
         raw, _ = load_ohlcv_cache(f"ohlcv_{symbol}")
+
+    # Persist in fast SQLite cache for 15 minutes
+    if raw and kite_interval == "day" and len(raw) >= 10:
+        try:
+            from engine.analysis_cache import cache_set
+            cache_set(cache_key, raw, namespace="history", ttl_minutes=15)
+        except Exception:
+            pass
 
     if not raw:
         return pd.DataFrame(columns=["date", "open", "high", "low", "close", "volume"])

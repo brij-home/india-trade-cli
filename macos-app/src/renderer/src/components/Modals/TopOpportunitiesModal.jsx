@@ -49,13 +49,20 @@ export default function TopOpportunitiesModal({ isOpen, onClose }) {
     }
   }, [isOpen, universe])
 
-  // ESC to close
+  // ESC or close-all-modals event to close
   useEffect(() => {
     function onKeyDown(e) {
       if (isOpen && e.key === 'Escape') onClose()
     }
+    function handleCloseAll() {
+      if (isOpen) onClose()
+    }
     window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
+    window.addEventListener('close-all-modals', handleCloseAll)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+      window.removeEventListener('close-all-modals', handleCloseAll)
+    }
   }, [isOpen, onClose])
 
   const handlePushAllTelegram = async () => {
