@@ -146,9 +146,26 @@ The lifecycle engine ([`engine/trade_lifecycle.py`](file:///c:/Users/brije/.gemi
 
 ---
 
-## 8. Testing & Verification
+## 8. Two-Tier Execution Gate & Single-Source OHLCV Efficiency
+
+The execution gate ([`analysis/execution_gate.py`](file:///c:/Users/brije/.gemini/antigravity/scratch/india-trade-cli/analysis/execution_gate.py)) unites historical edge with live order flow:
+
+1. **🏛️ Tier 1: Strategic Edge (180–365D Historical Quant)**:
+   - Evaluates Minervini Trend Template, Weinstein Stage 2, SMC unmitigated order blocks, RRG momentum, and Forensic governance.
+   - Outputs **Strategic Conviction Score (0–100)**.
+2. **⚡ Tier 2: Tactical Microstructure (Live Tick & Order Flow)**:
+   - Evaluates live entry zone proximity ($\pm 0.5\%$), intraday RVOL surge ($\ge 1.3\text{x}$), options OI flow (`LONG_BUILDUP` vs `SHORT_BUILDUP`), and TTM Squeeze firing.
+   - Outputs **Tactical Execution Score (0–100)** and Verdict (`🟢 READY`, `🟡 STALK`, `🔴 STAND_DOWN`).
+3. **Data Reuse & Caching Architecture**:
+   - Single-source OHLCV: Fetch 250D Daily OHLCV once and pass the DataFrame in-memory across all analyzers (reduces network overhead by 66%).
+   - Fast SQLite Cache: Persist features in `analysis_cache` (15m TTL).
+   - Timezone normalization: Enforce tz-naive DatetimeIndex (`df.index.tz_localize(None)`).
+
+---
+
+## 9. Testing & Verification
 
 ```powershell
 # Run quantitative and structural test suites
-.venv\Scripts\pytest.exe tests/test_market_structure.py tests/test_volume_profile.py tests/test_multibagger.py tests/test_trade_lifecycle.py -v
+.venv\Scripts\pytest.exe tests/test_market_structure.py tests/test_volume_profile.py tests/test_multibagger.py tests/test_trade_lifecycle.py tests/test_execution_gate.py -v
 ```

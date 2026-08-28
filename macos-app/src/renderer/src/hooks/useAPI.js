@@ -4,10 +4,10 @@ export function useAPI() {
   const port = useChatStore((s) => s.port)
 
   // Web mode: use same origin (no port needed)
-  // Electron mode: use port from IPC
+  // Electron mode: use port from IPC with fallback to default 8765
   const base = window.__INDIA_TRADE_WEB__
     ? window.location.origin
-    : port ? `http://127.0.0.1:${port}` : null
+    : (port ? `http://127.0.0.1:${port}` : 'http://127.0.0.1:8765')
 
   // In web mode, include credentials (cookies) with every request
   const fetchOpts = window.__INDIA_TRADE_WEB__ ? { credentials: 'include' } : {}

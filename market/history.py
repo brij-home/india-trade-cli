@@ -32,6 +32,14 @@ INTERVAL_MAP = {
 }
 
 
+import time
+import threading
+
+_df_memory_cache_lock = threading.Lock()
+_df_memory_cache: dict[str, tuple[float, pd.DataFrame]] = {}
+_DF_TTL_SECONDS = 300.0  # 5 minutes in-memory cache
+
+
 def get_ohlcv(
     symbol: str,
     exchange: str = "NSE",
@@ -55,26 +63,35 @@ def get_ohlcv(
         DataFrame with columns: date, open, high, low, close, volume
         Index: date (datetime)
     """
-    to_date = to_date or datetime.now()
-    from_date = from_date or (to_date - timedelta(days=days))
-
     # Normalize interval alias
     kite_interval = INTERVAL_MAP.get(interval, interval)
     clean_sym = symbol.upper().replace(".NS", "").replace("NSE:", "").strip()
-    cache_key = f"ohlcv_{clean_sym}_{exchange}_{kite_interval}_{days}"
+    cache_key = f"{clean_sym}_{exchange.upper()}_{kite_interval}_{days}"
+    now_ts = time.time()
 
-    # Fast Cache Layer: Check SQLite analysis_cache for recent daily candles (15m TTL) to eliminate repeated network calls
+    # Tier 1: Instant In-Memory DataFrame Cache (0.1ms latency)
+    if kite_interval == "day" and not from_date and not to_date:
+        with _df_memory_cache_lock:
+            if cache_key in _df_memory_cache:
+                stored_ts, cached_df = _df_memory_cache[cache_key]
+                if now_ts - stored_ts < _DF_TTL_SECONDS and not cached_df.empty:
+                    return cached_df.copy()
+
+    to_date = to_date or datetime.now()
+    from_date = from_date or (to_date - timedelta(days=days))
+
+    # Tier 2: Fast SQLite analysis_cache for recent daily candles (15m TTL)
     raw = None
     if kite_interval == "day":
         try:
             from engine.analysis_cache import cache_get
-            cached_rows = cache_get(cache_key, namespace="history", max_age_seconds=900)
+            cached_rows = cache_get(f"ohlcv_{cache_key}", namespace="history", max_age_seconds=900)
             if cached_rows and isinstance(cached_rows, list) and len(cached_rows) >= 10:
                 raw = cached_rows
         except Exception:
             pass
 
-    # Data cascade: broker API → yfinance → disk cache. No mock/synthetic data.
+    # Tier 3: Data cascade: broker API → yfinance → disk cache.
     if not raw:
         try:
             from brokers.session import get_broker
@@ -90,7 +107,7 @@ def get_ohlcv(
                     to_date=to_date,
                 )
             else:
-                # Mock broker: still use yfinance for real market data
+                # Mock broker: use yfinance
                 raw = _yfinance_fallback(symbol, exchange, kite_interval, from_date, to_date)
         except Exception:
             pass
@@ -102,14 +119,14 @@ def get_ohlcv(
             save_ohlcv_cache(f"ohlcv_{symbol}", raw)
 
     if not raw:
-        # Tier 3: disk cache — last-resort when both broker and yfinance fail
+        # Tier 4: disk cache — last-resort when both broker and yfinance fail
         raw, _ = load_ohlcv_cache(f"ohlcv_{symbol}")
 
-    # Persist in fast SQLite cache for 15 minutes
+    # Persist in SQLite cache for 15 minutes
     if raw and kite_interval == "day" and len(raw) >= 10:
         try:
             from engine.analysis_cache import cache_set
-            cache_set(cache_key, raw, namespace="history", ttl_minutes=15)
+            cache_set(f"ohlcv_{cache_key}", raw, namespace="history", ttl_minutes=15)
         except Exception:
             pass
 
@@ -119,13 +136,26 @@ def get_ohlcv(
     df = pd.DataFrame(raw)
     df.rename(columns={"date": "date"}, inplace=True)
     df["date"] = pd.to_datetime(df["date"])
+    if hasattr(df["date"].dt, "tz") and df["date"].dt.tz is not None:
+        df["date"] = df["date"].dt.tz_localize(None)
     df.set_index("date", inplace=True)
+    if hasattr(df.index, "tz") and df.index.tz is not None:
+        df.index = df.index.tz_localize(None)
     df = df[["open", "high", "low", "close", "volume"]].astype(float)
+    df = df[~df.index.duplicated(keep="last")]
     df.sort_index(inplace=True)
 
-    # Overlay latest live real-time tick to guarantee decision-making on fresh data
+    # Overlay latest live real-time tick
     if kite_interval == "day" and not df.empty:
         df = inject_live_tick(df, symbol=symbol, exchange=exchange)
+
+    if hasattr(df.index, "tz") and df.index.tz is not None:
+        df.index = df.index.tz_localize(None)
+
+    # Save into Tier 1 In-Memory Cache
+    if kite_interval == "day" and not df.empty:
+        with _df_memory_cache_lock:
+            _df_memory_cache[cache_key] = (now_ts, df.copy())
 
     return df
 
@@ -141,6 +171,9 @@ def inject_live_tick(
     """
     try:
         from market.quotes import get_quote
+
+        if hasattr(df.index, "tz") and df.index.tz is not None:
+            df.index = df.index.tz_localize(None)
 
         inst = f"{exchange}:{symbol}"
         quotes = get_quote([inst])
@@ -193,6 +226,9 @@ def inject_live_tick(
                 index=[today_date],
             )
             df = pd.concat([df, new_row])
+
+        if hasattr(df.index, "tz") and df.index.tz is not None:
+            df.index = df.index.tz_localize(None)
 
         return df
     except Exception:

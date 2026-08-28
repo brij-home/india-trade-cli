@@ -86,7 +86,7 @@ console = Console(legacy_windows=False)
 
 ANTHROPIC_DEFAULT_MODEL = "claude-opus-4-5"
 OPENAI_DEFAULT_MODEL = "gpt-4o"
-GEMINI_DEFAULT_MODEL = "gemini-2.0-flash"
+GEMINI_DEFAULT_MODEL = "gemini-3.7-flash"
 OLLAMA_DEFAULT_MODEL = "llama3.1"
 NVIDIA_DEFAULT_MODEL = "meta/llama-3.3-70b-instruct"
 GROQ_DEFAULT_MODEL = "llama-3.3-70b-versatile"
@@ -140,8 +140,8 @@ def _assistant_msg(content: str) -> dict:
 
 
 
-def _retry_api_call(fn, *args, max_retries: int = 5, initial_delay: float = 1.5, **kwargs):
-    """Execute an API function with adaptive exponential backoff on transient errors (503, 429, timeout, rate limits)."""
+def _retry_api_call(fn, *args, max_retries: int = 2, initial_delay: float = 0.5, **kwargs):
+    """Execute an API function with adaptive retry on transient errors (503, 429, timeout)."""
     import re
     import time
 
@@ -163,16 +163,15 @@ def _retry_api_call(fn, *args, max_retries: int = 5, initial_delay: float = 1.5,
                 )
             )
             if is_transient and attempt < max_retries - 1:
-                # Parse explicit retry delay if returned by Gemini / provider error message
                 retry_match = re.search(r"retry in\s+([\d\.]+)\s*s", err_str) or re.search(
                     r"retrydelay['\":\s]+(\d+)", err_str
                 )
                 if retry_match:
-                    wait_time = float(retry_match.group(1)) + 0.5
+                    wait_time = float(retry_match.group(1)) + 0.2
                 else:
                     wait_time = delay
-                time.sleep(max(wait_time, 1.5))
-                delay = max(delay * 2.0, 3.0)
+                time.sleep(min(wait_time, 2.0))
+                delay = min(delay * 2.0, 2.0)
                 continue
             raise last_err
 
@@ -1556,7 +1555,7 @@ class GeminiProvider(LLMProvider):
       - Free / paid API key from Google AI Studio (aistudio.google.com)
       - GEMINI_API_KEY in .env
 
-    Models: gemini-2.5-pro, gemini-2.0-flash, gemini-1.5-pro, etc.
+    Models: gemini-3.7-flash, gemini-3.5-flash-lite, gemini-3.5-flash, etc.
 
     Tool calling: uses Gemini's native function calling protocol.
 
@@ -1637,11 +1636,33 @@ class GeminiProvider(LLMProvider):
         gemini_history = self._to_gemini_history(messages[:-1]) if len(messages) > 1 else []
         last_msg = messages[-1]["content"] if messages else ""
 
-        chat_session = self._client.chats.create(
-            model=self.model or GEMINI_DEFAULT_MODEL,
-            config=config,
-            history=gemini_history or None,
-        )
+        active_model = self.model or GEMINI_DEFAULT_MODEL
+        chat_session = None
+
+        candidate_chain = [active_model] + [
+            m for m in ["gemini-3.7-flash", "gemini-3.5-flash-lite", "gemini-3.5-flash", "gemini-flash-latest"]
+            if m != active_model
+        ]
+
+        for cand in candidate_chain:
+            try:
+                chat_session = self._client.chats.create(
+                    model=cand,
+                    config=config,
+                    history=gemini_history or None,
+                )
+                active_model = cand
+                break
+            except Exception:
+                continue
+
+        if chat_session is None:
+            chat_session = self._client.chats.create(
+                model=active_model,
+                config=config,
+                history=gemini_history or None,
+            )
+
         final_text = ""
 
         # Send the last user message
@@ -1652,9 +1673,18 @@ class GeminiProvider(LLMProvider):
                 response = _retry_api_call(chat_session.send_message, current_input)
             except Exception as e:
                 err_str = str(e).lower()
-                # If specific model hit hard daily quota, attempt fallback to standard flash models
-                if "resource_exhausted" in err_str or "quota exceeded" in err_str:
-                    fallback_models = [m for m in ["gemini-3.5-flash", "gemini-3.5-flash-lite", "gemini-flash-latest", "gemini-3.7-flash"] if m != (self.model or GEMINI_DEFAULT_MODEL)]
+                is_fallback_candidate = any(
+                    term in err_str
+                    for term in (
+                        "resource_exhausted", "quota exceeded", "not found", "404",
+                        "invalid argument", "not supported", "is not valid", "rate limit"
+                    )
+                )
+                if is_fallback_candidate:
+                    fallback_models = [
+                        m for m in ["gemini-3.7-flash", "gemini-3.5-flash-lite", "gemini-3.5-flash", "gemini-flash-latest"]
+                        if m != active_model
+                    ]
                     for fb_model in fallback_models:
                         try:
                             fb_session = self._client.chats.create(
@@ -1664,6 +1694,7 @@ class GeminiProvider(LLMProvider):
                             )
                             response = _retry_api_call(fb_session.send_message, current_input)
                             chat_session = fb_session  # switch active session
+                            active_model = fb_model
                             break
                         except Exception:
                             continue
@@ -1927,17 +1958,23 @@ def get_provider(
     # whether to propagate construction failures or silently recover.
     explicit_provider = bool(provider)
 
-    chosen = provider or os.environ.get("AI_PROVIDER", "").lower() or _auto_detect_provider()
+    chosen = provider or os.environ.get("AI_PROVIDER", "").lower()
 
-    # If auto-detect fell back to anthropic but no key is available,
-    # run the first-time setup only if running in an interactive terminal session
+    # If no explicit provider or saved provider has no key, check auto-detection
+    if not chosen or (chosen == PROVIDER_ANTHROPIC and not _has_anthropic_key()):
+        auto = _auto_detect_provider()
+        if auto != PROVIDER_ANTHROPIC or _has_anthropic_key():
+            chosen = auto
+
+    # If still anthropic but no key is available, run setup if interactive, else use auto-detect
     if chosen == PROVIDER_ANTHROPIC and not _has_anthropic_key():
         import sys
 
         if sys.stdin and hasattr(sys.stdin, "isatty") and sys.stdin.isatty():
             chosen = _first_time_provider_setup()
         else:
-            chosen = "none"
+            auto = _auto_detect_provider()
+            chosen = auto if auto != PROVIDER_ANTHROPIC else "none"
 
     chosen_model = model or os.environ.get("AI_MODEL") or _default_model(chosen)
 
@@ -1946,7 +1983,7 @@ def get_provider(
     if chosen == "none":
         raise RuntimeError(
             "No AI provider configured.\n"
-            "Run [bold]credentials setup[/bold] → AI Provider to set one up."
+            "Run credentials setup → AI Provider or set GEMINI_API_KEY / OPENAI_API_KEY in .env."
         )
 
     dispatch = {
@@ -2163,20 +2200,29 @@ def _auto_detect_provider() -> str:
          even without user intent to use Gemini), so it's last
     """
     env = os.environ
+    from config.credentials import get_credential
 
-    # Explicit API keys first
-    if env.get("ANTHROPIC_API_KEY"):
+    # Explicit API keys first (env + keychain)
+    if env.get("ANTHROPIC_API_KEY") or get_credential("ANTHROPIC_API_KEY", required=False):
         return PROVIDER_ANTHROPIC
-    if env.get("OPENAI_API_KEY"):
+    if env.get("OPENAI_API_KEY") or get_credential("OPENAI_API_KEY", required=False):
         return PROVIDER_OPENAI
-    if env.get("GEMINI_API_KEY") or env.get("GOOGLE_API_KEY"):
+    if env.get("GEMINI_API_KEY") or env.get("GOOGLE_API_KEY") or get_credential("GEMINI_API_KEY", required=False):
         return PROVIDER_GEMINI
+    if env.get("GROQ_API_KEY") or get_credential("GROQ_API_KEY", required=False):
+        return PROVIDER_GROQ
+    if env.get("NVIDIA_API_KEY") or get_credential("NVIDIA_API_KEY", required=False):
+        return PROVIDER_NVIDIA
+    if env.get("DEEPSEEK_API_KEY") or get_credential("DEEPSEEK_API_KEY", required=False):
+        return PROVIDER_DEEPSEEK
+    if env.get("OPENROUTER_API_KEY") or get_credential("OPENROUTER_API_KEY", required=False):
+        return PROVIDER_OPENROUTER
 
     # Ollama: check if OLLAMA_BASE_URL is set or if ollama is running locally
     if env.get("OLLAMA_BASE_URL") or env.get("OLLAMA_MODEL"):
         return PROVIDER_OLLAMA
 
-    # claude CLI binary — most reliable signal of subscription intent
+    # claude CLI binary — reliable signal of subscription intent
     import shutil
 
     if shutil.which("claude") or shutil.which("claude-code"):
@@ -2656,7 +2702,7 @@ def build_fast_provider_from_env(registry=None) -> "LLMProvider":
         AI_FAST_MODEL=claude-haiku-3-5
         # or mix providers:
         AI_FAST_PROVIDER=gemini
-        AI_FAST_MODEL=gemini-2.0-flash
+        AI_FAST_MODEL=gemini-3.7-flash
     """
     fast_model = os.environ.get("AI_FAST_MODEL", "").strip()
     fast_provider_name = os.environ.get("AI_FAST_PROVIDER", "").strip().lower()

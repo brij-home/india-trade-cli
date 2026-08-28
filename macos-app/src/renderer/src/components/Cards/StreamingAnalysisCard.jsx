@@ -122,6 +122,17 @@ export default function StreamingAnalysisCard({ data }) {
         </div>
       </div>
 
+      {/* Diagnostic / Error Alert Banner */}
+      {data?.error && (
+        <div className="border border-red/40 bg-red/10 rounded-lg p-3 space-y-1">
+          <div className="flex items-center gap-2 text-red font-medium text-xs font-ui">
+            <span>⚠</span>
+            <span>Diagnostic Notice</span>
+          </div>
+          <p className="text-text/90 text-xs font-mono whitespace-pre-wrap">{data.error}</p>
+        </div>
+      )}
+
       {/* Analyst grid */}
       <div className="border-t border-border pt-3">
         <p className="text-muted text-[10px] uppercase tracking-widest font-ui mb-2">

@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useChatStore } from '../../store/chatStore'
 
 function fmt(n) {
   return Number(n ?? 0).toLocaleString('en-IN')
@@ -6,13 +7,15 @@ function fmt(n) {
 
 export default function OICard({ data }) {
   const d = data?.data ?? data ?? {}
-  const symbol = d.symbol ?? '—'
+  const symbol = d.symbol ?? d.underlying ?? '—'
   const spot = d.spot ?? d.spot_price ?? 0
   const pcr = d.pcr ?? d.put_call_ratio ?? null
   const maxPain = d.max_pain ?? d.resistance ?? null
   const support = d.support ?? null
   const chain = d.chain ?? []
+  const dataSource = d.data_source
 
+  const sendDraft = useChatStore((s) => s.sendDraft)
   const [viewMode, setViewMode] = useState('chart') // 'chart' | 'table'
 
   const topStrikes = [...chain]
@@ -39,7 +42,14 @@ export default function OICard({ data }) {
       {/* Header */}
       <div className="flex items-center justify-between border-b border-border/40 pb-3">
         <div>
-          <p className="text-muted text-[10px] uppercase tracking-widest font-ui">Open Interest Profile</p>
+          <div className="flex items-center gap-2 mb-0.5">
+            <p className="text-muted text-[10px] uppercase tracking-widest font-ui">Open Interest Profile</p>
+            {dataSource === 'ESTIMATED_MODEL' && (
+              <span className="text-[9px] px-1.5 py-0.2 rounded bg-amber/10 text-amber border border-amber/20 font-ui">
+                Est. Model
+              </span>
+            )}
+          </div>
           <div className="flex items-center gap-2 mt-0.5">
             <span className="text-text text-lg font-semibold">{symbol}</span>
             {spot > 0 && (
@@ -98,38 +108,37 @@ export default function OICard({ data }) {
           )}
           {maxPain && (
             <div className="bg-red/5 border border-red/20 rounded-lg p-2.5">
-              <p className="text-red text-[10px] font-ui uppercase tracking-wider">Max Pain / Major Resistance</p>
+              <p className="text-red text-[10px] font-ui uppercase tracking-wider">Resistance Wall (Max Call OI)</p>
               <p className="text-text text-sm font-semibold mt-0.5">₹{Number(maxPain).toLocaleString('en-IN')}</p>
             </div>
           )}
         </div>
       )}
 
-      {/* Visual Dual-Bar OI Chart */}
-      {viewMode === 'chart' && topStrikes.length > 0 && (
+      {/* Visual Chart View */}
+      {viewMode === 'chart' && (
         <div className="space-y-2 pt-1">
-          <div className="flex justify-between text-[10px] text-muted uppercase font-ui px-2">
-            <span className="text-red">◀ Call OI (Resistance)</span>
-            <span>Strike</span>
-            <span className="text-green">Put OI (Support) ▶</span>
+          <div className="flex items-center justify-between text-[10px] text-muted font-ui px-1">
+            <span className="text-red flex items-center gap-1">
+              <span className="w-2 h-2 rounded-xs bg-red/80 inline-block" /> Call OI (Resistance)
+            </span>
+            <span className="text-text font-semibold">Strike</span>
+            <span className="text-green flex items-center gap-1">
+              Put OI (Support) <span className="w-2 h-2 rounded-xs bg-green/80 inline-block" />
+            </span>
           </div>
 
           <div className="space-y-1.5">
-            {topStrikes.map((row, i) => {
+            {topStrikes.map((row) => {
+              const ceWidth = `${Math.min(100, Math.round(((row.ce_oi || 0) / maxOI) * 100))}%`
+              const peWidth = `${Math.min(100, Math.round(((row.pe_oi || 0) / maxOI) * 100))}%`
               const atm =
                 spot > 0 &&
                 Math.abs(row.strike - spot) <
                   ((topStrikes[1]?.strike - topStrikes[0]?.strike) || 50) / 2
-              const ceWidth = `${Math.min(100, Math.round(((row.ce_oi || 0) / maxOI) * 100))}%`
-              const peWidth = `${Math.min(100, Math.round(((row.pe_oi || 0) / maxOI) * 100))}%`
 
               return (
-                <div
-                  key={i}
-                  className={`flex items-center gap-2 py-1 px-2 rounded text-xs transition-colors ${
-                    atm ? 'bg-amber/10 border border-amber/40 shadow-xs' : 'hover:bg-panel/40'
-                  }`}
-                >
+                <div key={row.strike} className="flex items-center gap-2 text-xs">
                   {/* Call Bar (Right to Left) */}
                   <div className="flex-1 flex items-center justify-end gap-1.5 overflow-hidden">
                     <span className="text-[10px] text-muted shrink-0">{fmt(row.ce_oi)}</span>
@@ -197,6 +206,31 @@ export default function OICard({ data }) {
           </tbody>
         </table>
       )}
+
+      {/* 1-Click Action Chips */}
+      <div className="mt-3 pt-3 border-t border-border/40 flex flex-wrap gap-1.5 text-[11px] font-ui">
+        <button
+          onClick={() => sendDraft(`payoff ${symbol}`)}
+          className="bg-amber/10 text-amber border border-amber/30 hover:bg-amber/20 px-2.5 py-1 rounded-lg transition-colors cursor-pointer font-semibold shadow-xs"
+          title={`Simulate options payoff strategy for ${symbol}`}
+        >
+          🎯 Payoff Simulator
+        </button>
+        <button
+          onClick={() => sendDraft(`analyze ${symbol}`)}
+          className="bg-panel hover:bg-elevated text-text border border-border/60 px-2.5 py-1 rounded-lg transition-colors cursor-pointer"
+          title={`Launch full multi-agent AI debate for ${symbol}`}
+        >
+          ⚡ Multi-Agent Analysis
+        </button>
+        <button
+          onClick={() => sendDraft(`backtest ${symbol} rsi`)}
+          className="bg-panel hover:bg-elevated text-text border border-border/60 px-2.5 py-1 rounded-lg transition-colors cursor-pointer"
+          title={`Run RSI backtest on ${symbol}`}
+        >
+          🧪 Backtest
+        </button>
+      </div>
     </div>
   )
 }

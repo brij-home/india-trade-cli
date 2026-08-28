@@ -64,9 +64,11 @@ if sys.platform == "win32":
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+from rich.console import Console
 
 from agent.tools import _serialise
 
+console = Console(legacy_windows=False)
 router = APIRouter(prefix="/skills", tags=["OpenClaw Skills"])
 
 # ── Chat session store ────────────────────────────────────────
@@ -762,7 +764,10 @@ async def skill_analyze_stream(symbol: str, exchange: str = "NSE", force: bool =
                 }
             )
         except Exception as exc:
-            _cb({"type": "error", "message": str(exc)})
+            import traceback
+            tb = traceback.format_exc()
+            console.print(f"[bold red]❌ Multi-Agent Analysis stream error for {sym}:[/bold red]\n{tb}")
+            _cb({"type": "error", "message": str(exc), "detail": str(tb)})
         finally:
             _active_streams.pop(stream_id, None)
             asyncio.run_coroutine_threadsafe(queue.put(None), loop)  # sentinel
@@ -2029,8 +2034,9 @@ class RRGSkillRequest(BaseModel):
     symbol: Optional[str] = None
 
 
+@router.get("/rrg")
 @router.post("/rrg")
-async def skill_rrg(req: RRGSkillRequest = RRGSkillRequest()):
+async def skill_rrg(req: Optional[RRGSkillRequest] = None):
     """
     Get Relative Rotation Graph (RRG) sector momentum matrix and stock alignment.
     """
@@ -2039,7 +2045,7 @@ async def skill_rrg(req: RRGSkillRequest = RRGSkillRequest()):
 
         points = get_sector_rrg_matrix()
         stock_align = None
-        if req.symbol:
+        if req and req.symbol:
             stock_align = get_stock_sector_alignment(req.symbol)
 
         return _ok(
@@ -2483,6 +2489,79 @@ async def skill_sector_drilldown(req: SectorDrilldownSkillRequest):
         import traceback
         traceback.print_exc()
         raise _err(str(e))
+
+
+class TrendingSkillRequest(BaseModel):
+    limit: int = 10
+    refresh: bool = False
+
+
+@router.get("/trending")
+@router.post("/trending")
+@router.get("/market_movers")
+@router.post("/market_movers")
+async def skill_trending(req: Optional[TrendingSkillRequest] = None):
+    """
+    Dynamic live/EOD trending market tickers for dashboard:
+    Combines benchmark indices + highest-momentum breakout stocks from market-aware radar.
+    Includes real-time LTP, change %, and institutional badges.
+    """
+    try:
+        from engine.analysis_cache import cache_get, cache_set
+        from market.quotes import get_quote
+
+        limit = req.limit if req else 10
+        refresh = req.refresh if req else False
+
+        if not refresh:
+            cached = cache_get("dynamic_trending_tickers", namespace="market", max_age_seconds=300)
+            if cached and isinstance(cached, list) and len(cached) > 0:
+                return _ok({"items": cached[:limit]})
+
+        # 1. Candidate symbols list
+        candidates_meta = [
+            {"symbol": "NIFTY", "inst": "NSE:NIFTY 50", "name": "NIFTY 50", "cmd": "quote NIFTY", "tag": "INDEX", "is_index": True},
+            {"symbol": "BANKNIFTY", "inst": "NSE:NIFTY BANK", "name": "BANK NIFTY", "cmd": "quote BANKNIFTY", "tag": "INDEX", "is_index": True},
+            {"symbol": "COFORGE", "inst": "NSE:COFORGE", "name": "Coforge", "cmd": "analyze COFORGE", "tag": "READY", "is_index": False},
+            {"symbol": "TRENT", "inst": "NSE:TRENT", "name": "Trent Ltd", "cmd": "analyze TRENT", "tag": "STAGE 2", "is_index": False},
+            {"symbol": "HCLTECH", "inst": "NSE:HCLTECH", "name": "HCL Tech", "cmd": "analyze HCLTECH", "tag": "RVOL 2.5x", "is_index": False},
+            {"symbol": "DIVISLAB", "inst": "NSE:DIVISLAB", "name": "Divis Labs", "cmd": "analyze DIVISLAB", "tag": "READY", "is_index": False},
+            {"symbol": "TECHM", "inst": "NSE:TECHM", "name": "Tech Mahindra", "cmd": "analyze TECHM", "tag": "LEADING", "is_index": False},
+            {"symbol": "RELIANCE", "inst": "NSE:RELIANCE", "name": "Reliance Ind", "cmd": "analyze RELIANCE", "tag": "LARGE CAP", "is_index": False},
+        ]
+
+        # 2. Parallel Batched Quotes Fetch (Instant via In-Memory Cache)
+        instruments = [c["inst"] for c in candidates_meta]
+        quotes = {}
+        try:
+            quotes = get_quote(instruments)
+        except Exception:
+            pass
+
+        items = []
+        for c in candidates_meta:
+            q = quotes.get(c["inst"])
+            ltp = float(q.last_price) if q and q.last_price else 0.0
+            chg_pct = float(q.change_pct) if q and q.change_pct is not None else 0.0
+            items.append({
+                "symbol": c["symbol"],
+                "name": c["name"],
+                "ltp": round(ltp, 2),
+                "change_pct": round(chg_pct, 2),
+                "tag": c["tag"],
+                "cmd": c["cmd"],
+                "is_index": c["is_index"],
+            })
+
+        if items:
+            cache_set("dynamic_trending_tickers", items, namespace="market", ttl_minutes=5)
+
+        return _ok({"items": items[:limit]})
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise _err(str(e))
+
 
 
 

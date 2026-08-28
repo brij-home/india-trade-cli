@@ -30,10 +30,10 @@ function parseCommand(input) {
       return { endpoint: '/skills/positions', body: {}, cardType: 'holdings' }
 
     case 'backtest': case 'bt':
-      if (args.length < 2) return { error: 'Usage: backtest SYMBOL STRATEGY  (e.g. backtest RELIANCE rsi)' }
+      if (!args[0]) return { error: 'Usage: backtest SYMBOL [STRATEGY]  (e.g. backtest RELIANCE rsi)' }
       return {
         endpoint: '/skills/backtest',
-        body: { symbol: args[0].toUpperCase(), strategy: args[1] },
+        body: { symbol: args[0].toUpperCase(), strategy: args[1] || 'rsi' },
         cardType: 'backtest',
       }
 
@@ -312,6 +312,12 @@ export default function InputBar() {
       } else if (event.type === 'error') {
         es.close()
         setStreamCancel(null)
+        updateStreamingMessage(msgId, (d) => ({
+          ...d,
+          phase: 'done',
+          error: event.message,
+          report: d.report || `⚠️ Analysis notice: ${event.message}\n\n💡 Tip: Check your AI provider configuration or run 'credentials setup'.`,
+        }))
         addError(event.message)
         finalizeStreamingMessage(msgId)
       }
@@ -329,7 +335,12 @@ export default function InputBar() {
 
     es.onerror = () => {
       es.close()
-      addError('Stream connection lost')
+      setStreamCancel(null)
+      updateStreamingMessage(msgId, (d) => ({
+        ...d,
+        phase: 'done',
+        error: 'Stream connection closed or interrupted.',
+      }))
       finalizeStreamingMessage(msgId)
     }
   }

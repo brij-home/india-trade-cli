@@ -120,11 +120,29 @@ def _get_yf():
 # ── Quote functions ──────────────────────────────────────────
 
 
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import threading
+
+_quote_cache_lock = threading.Lock()
+_quote_cache: dict[str, tuple[float, Quote]] = {}  # key -> (timestamp, Quote)
+_QUOTE_TTL_SECONDS = 20.0
+
+
 def yf_get_quote(symbol: str, exchange: str = "NSE") -> Quote:
     """
-    Get a live quote for a single stock/index.
-    ~15 min delayed for Indian markets.
+    Get a live quote for a single stock/index with in-memory caching.
+    ~15 min delayed for Indian markets when no broker is connected.
     """
+    cache_key = f"{exchange.upper()}:{symbol.upper()}"
+    now = time.time()
+
+    with _quote_cache_lock:
+        if cache_key in _quote_cache:
+            ts, cached_q = _quote_cache[cache_key]
+            if now - ts < _QUOTE_TTL_SECONDS:
+                return cached_q
+
     yf = _get_yf()
     ticker = _to_yf_symbol(symbol, exchange)
 
@@ -153,7 +171,7 @@ def yf_get_quote(symbol: str, exchange: str = "NSE") -> Quote:
         change = round(last_price - prev_close, 2) if prev_close else 0
         change_pct = round((change / prev_close) * 100, 2) if prev_close else 0
 
-        return Quote(
+        q = Quote(
             symbol=symbol,
             last_price=last_price,
             open=open_price,
@@ -164,31 +182,63 @@ def yf_get_quote(symbol: str, exchange: str = "NSE") -> Quote:
             change=change,
             change_pct=change_pct,
         )
+
+        with _quote_cache_lock:
+            _quote_cache[cache_key] = (now, q)
+
+        return q
     except Exception as e:
         raise RuntimeError(f"yfinance quote failed for {symbol}: {e}") from e
 
 
 def yf_get_quotes(instruments: list[str]) -> dict[str, Quote]:
     """
-    Get quotes for multiple instruments. Per-symbol isolation:
-    one failing ticker doesn't drop the entire batch.
-    instruments: list of "EXCHANGE:SYMBOL" strings.
+    Get quotes for multiple instruments in parallel with threadpool execution.
+    Per-symbol isolation: one failing ticker doesn't drop the entire batch.
     """
+    if not instruments:
+        return {}
+
     result = {}
-    for inst in instruments:
-        if ":" in inst:
-            exchange, symbol = inst.split(":", 1)
+    missing = []
+    now = time.time()
+
+    # Fast path: in-memory cache lookup
+    with _quote_cache_lock:
+        for inst in instruments:
+            norm_key = inst.upper()
+            if norm_key in _quote_cache:
+                ts, q = _quote_cache[norm_key]
+                if now - ts < _QUOTE_TTL_SECONDS:
+                    result[inst] = q
+                    continue
+            missing.append(inst)
+
+    if not missing:
+        return result
+
+    def _fetch_single(inst_str: str) -> tuple[str, Optional[Quote]]:
+        if ":" in inst_str:
+            ex, sym = inst_str.split(":", 1)
         else:
-            exchange, symbol = "NSE", inst
-
-        if symbol.endswith("-EQ"):
-            symbol = symbol[:-3]
-
+            ex, sym = "NSE", inst_str
+        if sym.endswith("-EQ"):
+            sym = sym[:-3]
         try:
-            quote = yf_get_quote(symbol, exchange)
-            result[inst] = quote
+            return inst_str, yf_get_quote(sym, ex)
         except Exception:
-            pass  # skip failed symbol, return partial results
+            return inst_str, None
+
+    max_workers = min(12, len(missing))
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {executor.submit(_fetch_single, inst): inst for inst in missing}
+        for fut in as_completed(futures):
+            try:
+                inst_key, quote_obj = fut.result()
+                if quote_obj:
+                    result[inst_key] = quote_obj
+            except Exception:
+                pass
 
     return result
 

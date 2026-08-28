@@ -29,7 +29,7 @@ AI_FAST_MODEL=claude-haiku-3-5    # optional; or gemini-flash
 AI_DEEP_PROVIDER=anthropic
 AI_DEEP_MODEL=claude-opus-4-5
 AI_FAST_PROVIDER=gemini
-AI_FAST_MODEL=gemini-2.0-flash
+AI_FAST_MODEL=gemini-3.7-flash
 ```
 
 ## New functions in `agent/core.py`

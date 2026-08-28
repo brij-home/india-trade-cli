@@ -657,6 +657,9 @@ class Backtester:
 
         # Drop rows with NaN close prices (common in yfinance for current day)
         df = df.dropna(subset=["close"])
+        df.index = pd.to_datetime(df.index)
+        if hasattr(df.index, "tz") and df.index.tz is not None:
+            df.index = df.index.tz_localize(None)
         self._df = df
         return df
 
@@ -771,7 +774,16 @@ class Backtester:
         buy_hold = (last_close - first_close) / first_close * 100 if first_close else 0
 
         # CAGR
-        days_total = (df.index[-1] - df.index[0]).days
+        try:
+            start_dt = pd.Timestamp(df.index[0])
+            end_dt = pd.Timestamp(df.index[-1])
+            if hasattr(start_dt, "tz") and start_dt.tz:
+                start_dt = start_dt.tz_localize(None)
+            if hasattr(end_dt, "tz") and end_dt.tz:
+                end_dt = end_dt.tz_localize(None)
+            days_total = (end_dt - start_dt).days
+        except Exception:
+            days_total = len(df)
         years = days_total / 365.25 if days_total > 0 else 1
         cagr = ((capital / self.initial_capital) ** (1 / years) - 1) * 100 if years > 0 else 0
 
@@ -799,7 +811,7 @@ class Backtester:
         avg_loss = sum(t.pnl_pct for t in losers) / len(losers) if losers else 0
         gross_profit = sum(t.pnl for t in winners)
         gross_loss = abs(sum(t.pnl for t in losers))
-        profit_factor = gross_profit / gross_loss if gross_loss > 0 else float("inf")
+        profit_factor = round(gross_profit / gross_loss, 2) if gross_loss > 0 else (99.99 if gross_profit > 0 else 0.0)
         avg_hold = sum(t.hold_days for t in trades) / len(trades) if trades else 0
 
         return BacktestResult(

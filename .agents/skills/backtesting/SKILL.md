@@ -41,6 +41,18 @@ Under [`engine/`](file:///c:/Users/brije/.gemini/antigravity/scratch/india-trade
 
 ---
 
+## Critical Rules & Guidelines
+
+1. **Timezone Normalization (tz-naive contract)**:
+   - All input OHLCV DataFrames and Series passed to backtest engines must have timezone-naive DatetimeIndex (`df.index = df.index.tz_localize(None)`).
+   - Never subtract timezone-aware and timezone-naive timestamps when computing hold days or CAGR duration.
+2. **Deterministic Data Handling**:
+   - In unit tests, always pass synthetic OHLCV data dictionaries or mock DataFrames to avoid network calls to Yahoo Finance or broker APIs.
+3. **Data Reuse & Caching**:
+   - In the API layer (`web/skills.py`), historical OHLCV data is cached via SQLite (`analysis_cache`) for 15 minutes. Ensure all strategy iterations reuse the cached DataFrame without duplicate network fetching.
+
+---
+
 ## Testing Backtest Modules
 
 ```powershell

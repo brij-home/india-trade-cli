@@ -137,11 +137,12 @@ def run_analysis_pipeline(
     exchange: str,
     registry: Any,
     parallel: bool = True,
+    progress_callback: Any = None,
 ) -> AnalysisContext:
     """
-    Run all 7 analyst agents deterministically and return an AnalysisContext.
+    Run the full 7-analyst team deterministically and return an AnalysisContext.
 
-    This is Stage 1 — no LLM involved. The AnalysisContext is then passed
+    Stage 1 of the two-stage analysis pipeline (#176). Pure Python — passes
     to MultiAgentAnalyzer for Stage 2 synthesis.
 
     Args:
@@ -149,6 +150,7 @@ def run_analysis_pipeline(
         exchange: Exchange code (e.g. "NSE")
         registry: ToolRegistry instance with market data tools
         parallel: Run analysts in parallel threads (default True)
+        progress_callback: Optional callback for streaming analyst updates
 
     Returns:
         AnalysisContext with pre-computed scores, compact_signals, and
@@ -177,9 +179,9 @@ def run_analysis_pipeline(
 
     # Run analysts
     if parallel:
-        reports = _run_parallel(analysts, symbol, exchange)
+        reports = _run_parallel(analysts, symbol, exchange, progress_callback=progress_callback)
     else:
-        reports = _run_sequential(analysts, symbol, exchange)
+        reports = _run_sequential(analysts, symbol, exchange, progress_callback=progress_callback)
 
     # Scorecard
     scorecard = compute_scorecard(reports)
@@ -211,7 +213,12 @@ def run_analysis_pipeline(
 # ── Internal helpers ─────────────────────────────────────────
 
 
-def _run_parallel(analysts: list[Any], symbol: str, exchange: str) -> list[Any]:
+def _run_parallel(
+    analysts: list[Any],
+    symbol: str,
+    exchange: str,
+    progress_callback: Any = None,
+) -> list[Any]:
     """Run analysts concurrently using ThreadPoolExecutor."""
     import concurrent.futures
 
@@ -222,37 +229,76 @@ def _run_parallel(analysts: list[Any], symbol: str, exchange: str) -> list[Any]:
         for fut in concurrent.futures.as_completed(futures):
             idx = futures[fut]
             try:
-                reports[idx] = fut.result()
+                report = fut.result()
+                reports[idx] = report
             except Exception as exc:
                 from agent.multi_agent import AnalystReport
 
-                reports[idx] = AnalystReport(
+                report = AnalystReport(
                     analyst=analysts[idx].name,
                     verdict="UNKNOWN",
                     confidence=0,
                     score=0,
                     error=str(exc),
                 )
+                reports[idx] = report
+
+            if progress_callback:
+                try:
+                    progress_callback(
+                        {
+                            "type": "analyst",
+                            "name": report.analyst,
+                            "verdict": report.verdict,
+                            "confidence": report.confidence,
+                            "score": getattr(report, "score", 0),
+                            "key_points": getattr(report, "key_points", []),
+                            "error": report.error,
+                        }
+                    )
+                except Exception:
+                    pass
 
     return reports
 
 
-def _run_sequential(analysts: list[Any], symbol: str, exchange: str) -> list[Any]:
+def _run_sequential(
+    analysts: list[Any],
+    symbol: str,
+    exchange: str,
+    progress_callback: Any = None,
+) -> list[Any]:
     """Run analysts one by one (used in tests / low-resource environments)."""
     from agent.multi_agent import AnalystReport
 
     reports = []
     for a in analysts:
         try:
-            reports.append(a.analyze(symbol, exchange))
+            r = a.analyze(symbol, exchange)
+            reports.append(r)
         except Exception as exc:
-            reports.append(
-                AnalystReport(
-                    analyst=a.name,
-                    verdict="UNKNOWN",
-                    confidence=0,
-                    score=0,
-                    error=str(exc),
-                )
+            r = AnalystReport(
+                analyst=a.name,
+                verdict="UNKNOWN",
+                confidence=0,
+                score=0,
+                error=str(exc),
             )
+            reports.append(r)
+
+        if progress_callback:
+            try:
+                progress_callback(
+                    {
+                        "type": "analyst",
+                        "name": r.analyst,
+                        "verdict": r.verdict,
+                        "confidence": r.confidence,
+                        "score": getattr(r, "score", 0),
+                        "key_points": getattr(r, "key_points", []),
+                        "error": r.error,
+                    }
+                )
+            except Exception:
+                pass
     return reports

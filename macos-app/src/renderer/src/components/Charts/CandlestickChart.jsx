@@ -102,6 +102,23 @@ export default function CandlestickChart({ symbol = 'NIFTY', exchange = 'NSE', h
 
     chartRef.current = chart
 
+    // Helper: Deduplicate and sort strictly ascending by time for Lightweight Charts
+    const sanitizeSeries = (arr) => {
+      if (!Array.isArray(arr) || arr.length === 0) return []
+      const seen = new Map()
+      for (const item of arr) {
+        if (item && item.time != null) {
+          const key = typeof item.time === 'object' ? `${item.time.year}-${item.time.month}-${item.time.day}` : String(item.time)
+          seen.set(key, item)
+        }
+      }
+      return Array.from(seen.values()).sort((a, b) => {
+        const tA = typeof a.time === 'number' ? a.time : String(a.time)
+        const tB = typeof b.time === 'number' ? b.time : String(b.time)
+        return tA > tB ? 1 : tA < tB ? -1 : 0
+      })
+    }
+
     // 1. Candlestick Series
     const candleSeries = chart.addCandlestickSeries({
       upColor: isDark ? '#10b981' : '#059669',
@@ -111,54 +128,69 @@ export default function CandlestickChart({ symbol = 'NIFTY', exchange = 'NSE', h
       wickUpColor: isDark ? '#10b981' : '#059669',
       wickDownColor: isDark ? '#f43f5e' : '#e11d48',
     })
-    candleSeries.setData(chartData.candles)
+    const cleanCandles = sanitizeSeries(chartData.candles)
+    if (cleanCandles.length > 0) {
+      candleSeries.setData(cleanCandles)
+    }
     candleSeriesRef.current = candleSeries
 
     // 2. Volume Series
     if (chartData.volumes && chartData.volumes.length > 0) {
-      const volumeSeries = chart.addHistogramSeries({
-        priceFormat: { type: 'volume' },
-        priceScaleId: '',
-      })
-      volumeSeries.priceScale().applyOptions({
-        scaleMargins: { top: 0.8, bottom: 0 },
-      })
-      volumeSeries.setData(chartData.volumes)
-      volumeSeriesRef.current = volumeSeries
+      const cleanVolumes = sanitizeSeries(chartData.volumes)
+      if (cleanVolumes.length > 0) {
+        const volumeSeries = chart.addHistogramSeries({
+          priceFormat: { type: 'volume' },
+          priceScaleId: '',
+        })
+        volumeSeries.priceScale().applyOptions({
+          scaleMargins: { top: 0.8, bottom: 0 },
+        })
+        volumeSeries.setData(cleanVolumes)
+        volumeSeriesRef.current = volumeSeries
+      }
     }
 
     // 3. SMAs
     if (chartData.sma20 && chartData.sma20.length > 0) {
-      const sma20 = chart.addLineSeries({
-        color: '#f59e0b',
-        lineWidth: 1.5,
-        priceLineVisible: false,
-        title: 'SMA 20',
-      })
-      if (showSMA.sma20) sma20.setData(chartData.sma20)
-      sma20Ref.current = sma20
+      const cleanSMA20 = sanitizeSeries(chartData.sma20)
+      if (cleanSMA20.length > 0) {
+        const sma20 = chart.addLineSeries({
+          color: '#f59e0b',
+          lineWidth: 1.5,
+          priceLineVisible: false,
+          title: 'SMA 20',
+        })
+        if (showSMA.sma20) sma20.setData(cleanSMA20)
+        sma20Ref.current = sma20
+      }
     }
 
     if (chartData.sma50 && chartData.sma50.length > 0) {
-      const sma50 = chart.addLineSeries({
-        color: '#3b82f6',
-        lineWidth: 1.5,
-        priceLineVisible: false,
-        title: 'SMA 50',
-      })
-      if (showSMA.sma50) sma50.setData(chartData.sma50)
-      sma50Ref.current = sma50
+      const cleanSMA50 = sanitizeSeries(chartData.sma50)
+      if (cleanSMA50.length > 0) {
+        const sma50 = chart.addLineSeries({
+          color: '#3b82f6',
+          lineWidth: 1.5,
+          priceLineVisible: false,
+          title: 'SMA 50',
+        })
+        if (showSMA.sma50) sma50.setData(cleanSMA50)
+        sma50Ref.current = sma50
+      }
     }
 
     if (chartData.sma200 && chartData.sma200.length > 0) {
-      const sma200 = chart.addLineSeries({
-        color: '#a855f7',
-        lineWidth: 1.5,
-        priceLineVisible: false,
-        title: 'SMA 200',
-      })
-      if (showSMA.sma200) sma200.setData(chartData.sma200)
-      sma200Ref.current = sma200
+      const cleanSMA200 = sanitizeSeries(chartData.sma200)
+      if (cleanSMA200.length > 0) {
+        const sma200 = chart.addLineSeries({
+          color: '#a855f7',
+          lineWidth: 1.5,
+          priceLineVisible: false,
+          title: 'SMA 200',
+        })
+        if (showSMA.sma200) sma200.setData(cleanSMA200)
+        sma200Ref.current = sma200
+      }
     }
 
     // Crosshair legend handler

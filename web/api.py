@@ -77,7 +77,47 @@ load_dotenv(app_data_path(".env"), override=False)
 
 _load_keychain()
 
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
+
+
+async def _background_cache_warmer():
+    """Background task to pre-warm quotes, OHLCV, and RRG matrix in memory for lightning fast UI response."""
+    def _warm_sync():
+        try:
+            from market.quotes import get_quote
+            from market.history import get_ohlcv
+            from analysis.sector_rotation import get_sector_rrg_matrix
+
+            # 1. Warm top index & mover quotes in parallel
+            get_quote([
+                "NSE:NIFTY 50", "NSE:NIFTY BANK", "NSE:INDIA VIX", "BSE:SENSEX",
+                "NSE:RELIANCE", "NSE:TCS", "NSE:INFY", "NSE:HDFCBANK", "NSE:ICICIBANK",
+                "NSE:COFORGE", "NSE:TRENT", "NSE:HCLTECH", "NSE:DIVISLAB", "NSE:TECHM",
+            ])
+            # 2. Warm OHLCV for benchmark indices
+            get_ohlcv("NIFTY", days=250)
+            get_ohlcv("BANKNIFTY", days=250)
+            # 3. Warm sector rotation matrix
+            get_sector_rrg_matrix(use_cache=True)
+        except Exception:
+            pass
+
+    try:
+        await asyncio.sleep(1)
+        loop = asyncio.get_running_loop()
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            await loop.run_in_executor(pool, _warm_sync)
+
+        while True:
+            await asyncio.sleep(60)
+            with ThreadPoolExecutor(max_workers=1) as pool:
+                await loop.run_in_executor(pool, _warm_sync)
+    except asyncio.CancelledError:
+        pass
+    except Exception:
+        pass
 
 
 @asynccontextmanager
@@ -85,7 +125,9 @@ async def lifespan(app: FastAPI):
     """Lifespan context manager for startup and shutdown events."""
     init_auth_db()
     await _auto_restore_brokers()
+    warmer_task = asyncio.create_task(_background_cache_warmer())
     yield
+    warmer_task.cancel()
 
 
 app = FastAPI(title="Vibe Trading", docs_url=None, redoc_url=None, lifespan=lifespan)

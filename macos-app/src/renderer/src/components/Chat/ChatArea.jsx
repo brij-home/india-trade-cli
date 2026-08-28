@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useChatStore } from '../../store/chatStore'
+import { useAPI } from '../../hooks/useAPI'
 import Message from './Message'
 
 const QUICK_PROMPTS = [
@@ -23,8 +24,8 @@ const QUICK_PROMPTS = [
   },
   {
     icon: '🌊',
-    title: 'Institutional Flow Radar',
-    desc: 'Track FII vs DII net cash & Index Futures Long/Short positioning.',
+    title: 'FII / DII Institutional Flows',
+    desc: 'Daily institutional cash & derivative positioning breakdown.',
     cmd: 'flows',
   },
   {
@@ -41,14 +42,15 @@ const QUICK_PROMPTS = [
   },
 ]
 
-const POPULAR_TICKERS = [
-  { label: 'NIFTY 50', cmd: 'quote NIFTY50' },
-  { label: 'BANKNIFTY', cmd: 'quote BANKNIFTY' },
-  { label: 'RELIANCE', cmd: 'analyze RELIANCE' },
-  { label: 'HDFCBANK', cmd: 'analyze HDFCBANK' },
-  { label: 'TCS', cmd: 'analyze TCS' },
-  { label: 'INFY', cmd: 'analyze INFY' },
-  { label: 'TATAMOTORS', cmd: 'analyze TATAMOTORS' },
+const DEFAULT_TICKERS = [
+  { symbol: 'NIFTY', name: 'NIFTY 50', cmd: 'quote NIFTY', tag: 'INDEX', ltp: 0, change_pct: 0 },
+  { symbol: 'BANKNIFTY', name: 'BANK NIFTY', cmd: 'quote BANKNIFTY', tag: 'INDEX', ltp: 0, change_pct: 0 },
+  { symbol: 'COFORGE', name: 'Coforge Ltd', cmd: 'analyze COFORGE', tag: 'READY', ltp: 0, change_pct: 0 },
+  { symbol: 'TRENT', name: 'Trent Ltd', cmd: 'analyze TRENT', tag: 'STAGE 2', ltp: 0, change_pct: 0 },
+  { symbol: 'RELIANCE', name: 'Reliance Ind', cmd: 'analyze RELIANCE', tag: 'LARGE CAP', ltp: 0, change_pct: 0 },
+  { symbol: 'HDFCBANK', name: 'HDFC Bank', cmd: 'analyze HDFCBANK', tag: 'LARGE CAP', ltp: 0, change_pct: 0 },
+  { symbol: 'TCS', name: 'Tata Consultancy', cmd: 'analyze TCS', tag: 'LARGE CAP', ltp: 0, change_pct: 0 },
+  { symbol: 'INFY', name: 'Infosys Ltd', cmd: 'analyze INFY', tag: 'LARGE CAP', ltp: 0, change_pct: 0 },
 ]
 
 export default function ChatArea() {
@@ -63,6 +65,33 @@ export default function ChatArea() {
   const activeSessionId = useChatStore((s) => s.activeSessionId)
   const sessions = useChatStore((s) => s.sessions)
   const bottomRef = useRef(null)
+
+  const { call } = useAPI()
+  const [trendingTickers, setTrendingTickers] = useState(DEFAULT_TICKERS)
+  const [trendingLoading, setTrendingLoading] = useState(false)
+
+  // Fetch dynamic trending market movers on mount
+  useEffect(() => {
+    let unmounted = false
+    const fetchTrending = async () => {
+      try {
+        setTrendingLoading(true)
+        const res = await call('/skills/trending', { limit: 10 })
+        const data = res?.data ?? res
+        if (!unmounted && data?.items && data.items.length > 0) {
+          setTrendingTickers(data.items)
+        }
+      } catch {
+        // Fall back gracefully to DEFAULT_TICKERS
+      } finally {
+        if (!unmounted) setTrendingLoading(false)
+      }
+    }
+    fetchTrending()
+    return () => {
+      unmounted = true
+    }
+  }, [])
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -168,19 +197,43 @@ export default function ChatArea() {
             </p>
           </div>
 
-          {/* Quick Tickers Bar (1-Click Instant Execution) */}
-          <div className="flex flex-wrap items-center justify-center gap-1.5 pt-1">
-            <span className="text-xs text-muted font-ui mr-1">Trending:</span>
-            {POPULAR_TICKERS.map((ticker) => (
-              <button
-                key={ticker.label}
-                onClick={() => sendDraft(ticker.cmd)}
-                className="px-2.5 py-1 rounded-full text-xs font-mono bg-panel hover:bg-elevated text-text border border-border/80 hover:border-amber/50 transition-all cursor-pointer shadow-xs hover:scale-102"
-                title={`Instant scan for ${ticker.label}`}
-              >
-                {ticker.label}
-              </button>
-            ))}
+          {/* Dynamic Trending / Market Movers Bar (1-Click Instant Execution) */}
+          <div className="flex flex-wrap items-center justify-center gap-2 pt-1 max-w-3xl">
+            <span className="text-xs text-muted font-ui mr-1 flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-amber animate-pulse" />
+              <span className="font-semibold text-text">Trending Movers:</span>
+            </span>
+            {trendingTickers.map((ticker) => {
+              const label = ticker.symbol || ticker.label
+              const cmd = ticker.cmd || `analyze ${label}`
+              const ltp = ticker.ltp
+              const changePct = ticker.change_pct
+              const tag = ticker.tag
+
+              return (
+                <button
+                  key={label}
+                  onClick={() => sendDraft(cmd)}
+                  className="group inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-mono bg-panel hover:bg-elevated text-text border border-border/80 hover:border-amber/50 transition-all cursor-pointer shadow-xs hover:scale-102"
+                  title={`Instant 1-click execution: ${cmd}`}
+                >
+                  <span className="font-bold text-amber group-hover:text-amber-light">{label}</span>
+                  {ltp > 0 && (
+                    <span className="text-[10px] text-muted hidden sm:inline">₹{Number(ltp).toLocaleString('en-IN')}</span>
+                  )}
+                  {changePct !== undefined && changePct !== 0 && (
+                    <span className={`text-[10px] font-semibold ${Number(changePct) >= 0 ? 'text-green' : 'text-red'}`}>
+                      {Number(changePct) >= 0 ? '+' : ''}{Number(changePct).toFixed(1)}%
+                    </span>
+                  )}
+                  {tag && (
+                    <span className="text-[9px] px-1.5 py-0.2 rounded-full bg-amber/10 text-amber border border-amber/20 hidden md:inline font-semibold">
+                      {tag}
+                    </span>
+                  )}
+                </button>
+              )
+            })}
           </div>
 
           {/* Quick Action Grid (1-Click Instant Execution) */}

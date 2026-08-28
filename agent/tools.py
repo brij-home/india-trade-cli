@@ -203,6 +203,7 @@ class ToolRegistry:
 def _serialise(obj: Any) -> Any:
     """Convert dataclasses, DataFrames, dates etc. to JSON-safe types."""
     import dataclasses
+    import math
     import pandas as pd
     from datetime import date, datetime
 
@@ -216,8 +217,11 @@ def _serialise(obj: Any) -> Any:
         return obj.reset_index().to_dict(orient="records")
     if isinstance(obj, (date, datetime)):
         return obj.isoformat()
-    if isinstance(obj, float) and (obj != obj):  # NaN
-        return None
+    if isinstance(obj, float):
+        if math.isnan(obj):
+            return None
+        if math.isinf(obj):
+            return 999.99 if obj > 0 else -999.99
     return obj
 
 

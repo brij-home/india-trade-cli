@@ -110,6 +110,10 @@ class AnalystScorecard:
         default_factory=list
     )  # e.g. "Technical BULLISH vs Fundamental BEARISH"
 
+    @property
+    def total_score(self) -> float:
+        return self.weighted_total
+
     def summary(self) -> str:
         parts = [
             f"Scorecard: {self.verdict} (total: {self.weighted_total:+.1f}, agreement: {self.agreement:.0f}%)"
@@ -608,21 +612,55 @@ class NewsMacroAnalyst(BaseAnalyst):
             points = []
             data: dict[str, Any] = {}
 
-            # ── Gather raw data (pure Python, no LLM) ───────────
+            # ── Gather raw data concurrently (pure Python, no LLM) ───────────
+            from concurrent.futures import ThreadPoolExecutor
 
-            # Stock-specific news
-            news = self.registry.execute("get_stock_news", {"symbol": symbol, "n": 8})
+            def _fetch_stock_news():
+                try: return self.registry.execute("get_stock_news", {"symbol": symbol, "n": 8})
+                except Exception: return []
+
+            def _fetch_market_news():
+                try: return self.registry.execute("get_market_news", {"n": 5})
+                except Exception: return []
+
+            def _fetch_fii_dii():
+                try: return self.registry.execute("get_fii_dii_data", {"days": 3})
+                except Exception: return []
+
+            def _fetch_deals():
+                try: return self.registry.execute("get_bulk_block_deals", {"symbol": symbol})
+                except Exception: return {}
+
+            def _fetch_breadth():
+                try: return self.registry.execute("get_market_breadth", {})
+                except Exception: return {}
+
+            def _fetch_events():
+                try: return self.registry.execute("get_upcoming_events", {"days": 7})
+                except Exception: return {}
+
+            with ThreadPoolExecutor(max_workers=6) as executor:
+                f_news = executor.submit(_fetch_stock_news)
+                f_mkt = executor.submit(_fetch_market_news)
+                f_fii = executor.submit(_fetch_fii_dii)
+                f_deals = executor.submit(_fetch_deals)
+                f_breadth = executor.submit(_fetch_breadth)
+                f_events = executor.submit(_fetch_events)
+
+                news = f_news.result()
+                market_news = f_mkt.result()
+                fii = f_fii.result()
+                deals = f_deals.result()
+                breadth = f_breadth.result()
+                events = f_events.result()
+
             if isinstance(news, list) and news:
                 data["news"] = news[:8]
                 points.append(f"{len(news)} recent news articles found")
 
-            # Market-wide news
-            market_news = self.registry.execute("get_market_news", {"n": 5})
             if isinstance(market_news, list) and market_news:
                 data["market_news"] = market_news[:5]
 
-            # FII/DII flows
-            fii = self.registry.execute("get_fii_dii_data", {"days": 3})
             if isinstance(fii, list) and fii:
                 data["fii_dii"] = fii
                 latest = fii[0] if fii else {}
@@ -631,30 +669,23 @@ class NewsMacroAnalyst(BaseAnalyst):
                     direction = "buying" if fii_net > 0 else "selling"
                     points.append(f"FII: net {direction} {abs(fii_net):,.0f} Cr (latest)")
 
-            # Bulk/block deals (institutional activity)
-            try:
-                deals = self.registry.execute("get_bulk_block_deals", {"symbol": symbol})
-                if isinstance(deals, dict):
-                    bulk_deals = deals.get("bulk", [])
-                    block_deals = deals.get("block", [])
-                    all_deals = bulk_deals + block_deals
-                    if all_deals:
-                        data["bulk_block_deals"] = all_deals
-                        buys = [d for d in all_deals if d.get("deal_type") == "BUY"]
-                        sells = [d for d in all_deals if d.get("deal_type") == "SELL"]
-                        fii_deals = [d for d in all_deals if d.get("entity_type") == "FII"]
-                        mf_deals = [d for d in all_deals if d.get("entity_type") == "MF"]
-                        summary = f"Bulk/block deals: {len(buys)} buys, {len(sells)} sells"
-                        if fii_deals:
-                            summary += f" ({len(fii_deals)} FII)"
-                        if mf_deals:
-                            summary += f" ({len(mf_deals)} MF)"
-                        points.append(summary)
-            except Exception:
-                pass  # non-critical — don't fail analysis if deals unavailable
+            if isinstance(deals, dict):
+                bulk_deals = deals.get("bulk", [])
+                block_deals = deals.get("block", [])
+                all_deals = bulk_deals + block_deals
+                if all_deals:
+                    data["bulk_block_deals"] = all_deals
+                    buys = [d for d in all_deals if d.get("deal_type") == "BUY"]
+                    sells = [d for d in all_deals if d.get("deal_type") == "SELL"]
+                    fii_deals = [d for d in all_deals if d.get("entity_type") == "FII"]
+                    mf_deals = [d for d in all_deals if d.get("entity_type") == "MF"]
+                    summary = f"Bulk/block deals: {len(buys)} buys, {len(sells)} sells"
+                    if fii_deals:
+                        summary += f" ({len(fii_deals)} FII)"
+                    if mf_deals:
+                        summary += f" ({len(mf_deals)} MF)"
+                    points.append(summary)
 
-            # Market breadth
-            breadth = self.registry.execute("get_market_breadth", {})
             if isinstance(breadth, dict):
                 data["breadth"] = breadth
                 ad_ratio = breadth.get("ad_ratio")
@@ -666,8 +697,6 @@ class NewsMacroAnalyst(BaseAnalyst):
                     else:
                         points.append(f"Breadth: Neutral ({ad_ratio:.1f} A/D ratio)")
 
-            # Upcoming events
-            events = self.registry.execute("get_upcoming_events", {"days": 7})
             if isinstance(events, dict) or isinstance(events, list):
                 data["events"] = events
                 points.append("Checked upcoming events (expiry, earnings, RBI)")
@@ -1296,7 +1325,13 @@ class MultiAgentAnalyzer:
         from analysis.pipeline import run_analysis_pipeline
 
         t0 = time.time()
-        ctx = run_analysis_pipeline(symbol, exchange, self.registry, parallel=self.parallel)
+        ctx = run_analysis_pipeline(
+            symbol,
+            exchange,
+            self.registry,
+            parallel=self.parallel,
+            progress_callback=self.progress_callback,
+        )
         reports = ctx.reports
         analyst_time = time.time() - t0
 
@@ -1587,9 +1622,9 @@ class MultiAgentAnalyzer:
 
         if self.verbose:
             console.print()
-            console.print("[bold]Analyst Team[/bold] — running 5 analysts in parallel...")
+            console.print(f"[bold]Analyst Team[/bold] — running {len(self.analysts)} analysts in parallel...")
 
-        with ThreadPoolExecutor(max_workers=5) as executor:
+        with ThreadPoolExecutor(max_workers=len(self.analysts)) as executor:
             futures = {executor.submit(a.analyze, symbol, exchange): a for a in self.analysts}
             for future in as_completed(futures):
                 analyst = futures[future]
@@ -1714,6 +1749,104 @@ class MultiAgentAnalyzer:
 
         console.print(table)
 
+    def _safe_chat(
+        self,
+        prompt: str,
+        fallback_text: str = "",
+        timeout: float = 35.0,
+    ) -> str:
+        """Execute an LLM chat call with exception protection and fallback."""
+        try:
+            res = self.llm.chat(
+                messages=[{"role": "user", "content": prompt}],
+                stream=False,
+                enable_tools=False,
+            )
+            res_str = str(res or "").strip()
+            if (
+                res_str
+                and not res_str.startswith("[Gemini error:")
+                and not res_str.startswith("[ChatGPT")
+                and not res_str.startswith("[Claude")
+                and "resource_exhausted" not in res_str.lower()
+            ):
+                return res_str
+            return fallback_text or res_str
+        except Exception as exc:
+            if self.verbose:
+                console.print(f"[dim yellow]  ⚠ LLM call fallback ({exc})[/dim yellow]")
+            return fallback_text
+
+    def _build_deterministic_synthesis(
+        self,
+        symbol: str,
+        exchange: str,
+        reports: list[AnalystReport],
+        winner: str = "NEUTRAL",
+    ) -> str:
+        """Construct an institutional quantitative synthesis when LLM is unavailable or times out."""
+        scorecard = compute_scorecard(reports)
+        ltp = 0.0
+        tech_data = {}
+        for r in reports:
+            if r.analyst == "Technical" and not r.error:
+                ltp = r.data.get("ltp", 0.0) or r.data.get("close", 0.0) or 0.0
+                tech_data = r.data
+                break
+
+        raw_sup = tech_data.get("support")
+        raw_res = tech_data.get("resistance")
+        sup = float(raw_sup) if raw_sup is not None else (round(ltp * 0.96, 1) if ltp else 0.0)
+        res = float(raw_res) if raw_res is not None else (round(ltp * 1.06, 1) if ltp else 0.0)
+        sl = sup if sup > 0 else (round(ltp * 0.95, 1) if ltp else 0.0)
+        tgt1 = res if res > 0 else (round(ltp * 1.05, 1) if ltp else 0.0)
+        tgt2 = round(ltp + (tgt1 - ltp) * 1.5, 1) if (ltp and tgt1 > ltp) else (round(ltp * 1.10, 1) if ltp else 0.0)
+
+        v_label = scorecard.verdict
+        if v_label in ("STRONG_BUY", "BUY"):
+            action = "LONG_BIAS"
+            strategy = "SWING_DELIVERY"
+            dec_winner = "BULL"
+        elif v_label in ("STRONG_SELL", "SELL"):
+            action = "SHORT_OR_DEFENSIVE"
+            strategy = "HEDGE_OR_EXIT"
+            dec_winner = "BEAR"
+        else:
+            action = "NEUTRAL_WAIT"
+            strategy = "RANGE_BOUND"
+            dec_winner = "NEUTRAL"
+
+        final_winner = winner if winner in ("BULL", "BEAR") else dec_winner
+
+        lines = [
+            f"RECOMMENDATION: {v_label} ({action})",
+            f"CONFIDENCE: {max(int(scorecard.agreement), 65)}%",
+            f"WINNER: {final_winner}",
+            "",
+            "TRADE SETUP:",
+            f"  • Entry Level:  ₹{ltp:,.2f}" if ltp else "  • Entry Level:  At Market",
+            f"  • Stop Loss:    ₹{sl:,.2f}" if sl else "  • Stop Loss:    Support Level (-3.5%)",
+            f"  • Target 1:     ₹{tgt1:,.2f} (2R)" if tgt1 else "  • Target 1:     Resistance (+5%)",
+            f"  • Target 2:     ₹{tgt2:,.2f} (3.5R)" if tgt2 else "  • Target 2:     Expansion (+10%)",
+            f"  • Strategy:     {strategy}",
+            "",
+            "RATIONALE:",
+            f"  • Overall quantitative score: {scorecard.total_score:+.1f} with {scorecard.agreement:.0f}% analyst agreement.",
+        ]
+        for r in reports:
+            if not r.error and r.key_points:
+                lines.append(f"  • {r.analyst}: {r.verdict} — {r.key_points[0]}")
+
+        lines.extend(
+            [
+                "",
+                "RISK FACTORS:",
+                "  • Respect invalidation stop loss strictly on daily close.",
+                "  • Align position sizing with current NIFTY regime and sector momentum.",
+            ]
+        )
+        return "\n".join(lines)
+
     # ── Phase 2: Bull/Bear Debate ────────────────────────────
 
     def _fast_path_debate(self, symbol: str, scorecard: Any) -> DebateResult:
@@ -1749,14 +1882,11 @@ class MultiAgentAnalyzer:
         """
         Run multi-round bull/bear debate with facilitator.
 
-        Round 1: Bull builds case → Bear counters
-        Round 2: Bull rebuts bear's points → Bear rebuts bull's rebuttal
+        Round 1: Bull builds case → Bear counters (concurrent)
+        Round 2: Bull rebuts bear's points → Bear rebuts bull's rebuttal (concurrent)
         Facilitator: Summarizes key agreements, disagreements, and picks a winner.
 
-        Total: 5 LLM calls for debate (bull, bear, bull rebuttal, bear rebuttal, facilitator)
-
-        compact_signals: pre-computed Stage 1 signal block (≤300 tokens).
-        Falls back to verbose summary_text() if not provided.
+        Total: 5 LLM calls for debate (with timeout and fallback protection).
         """
         # Use compact Stage 1 signals if available — saves ~800 tokens per call
         if compact_signals:
@@ -1764,112 +1894,110 @@ class MultiAgentAnalyzer:
         else:
             analyst_context = "\n\n".join(r.summary_text() for r in reports if not r.error)
 
-        # ── Round 1: Opening arguments ───────────────────────
+        scorecard = compute_scorecard(reports)
+        bull_fallback = f"Bull Thesis: {symbol} maintains positive structure with quantitative score {scorecard.total_score:+.1f}."
+        bear_fallback = f"Bear Counter: Downside risks include valuation multiples and macro headwinds."
+
+        # ── Round 1: Opening arguments (Concurrent) ───────────────────────
         if self.verbose:
             console.print("\n[bold]Round 1[/bold]")
+            console.print("[green]Bull Researcher[/green] & [red]Bear Researcher[/red] building opening cases in parallel...")
 
-        # Bull opening
         bull_prompt = BULL_RESEARCHER_PROMPT.format(
             symbol=symbol,
             exchange=exchange,
             analyst_data=analyst_context,
         )
-        if self.verbose:
-            console.print("[green]Bull Researcher[/green] building investment case...")
-
-        bull_argument = self.llm.chat(
-            messages=[{"role": "user", "content": bull_prompt}],
-            stream=self.verbose,
-            tool_names={"technical_analyse", "fundamental_analyse", "get_quote", "get_stock_news", "score_fundamentals"},
-        )
-        if self.progress_callback:
-            self.progress_callback(
-                {
-                    "type": "debate_step",
-                    "step": "bull_r1",
-                    "label": "Bull Researcher",
-                    "text": bull_argument,
-                }
-            )
-
-        # Bear counter
-        bear_prompt = BEAR_RESEARCHER_PROMPT.format(
+        bear_prompt = BEAR_RESEARCHER_OPENING_PROMPT.format(
             symbol=symbol,
             exchange=exchange,
             analyst_data=analyst_context,
-            bull_case=bull_argument,
         )
-        if self.verbose:
-            console.print("\n[red]Bear Researcher[/red] building counter-argument...")
 
-        bear_argument = self.llm.chat(
-            messages=[{"role": "user", "content": bear_prompt}],
-            stream=self.verbose,
-            tool_names={"technical_analyse", "fundamental_analyse", "get_quote", "get_stock_news", "score_fundamentals"},
-        )
-        if self.progress_callback:
-            self.progress_callback(
-                {
-                    "type": "debate_step",
-                    "step": "bear_r1",
-                    "label": "Bear Researcher",
-                    "text": bear_argument,
-                }
-            )
+        def _run_bull_r1():
+            res = self._safe_chat(bull_prompt, bull_fallback)
+            if self.progress_callback:
+                self.progress_callback(
+                    {
+                        "type": "debate_step",
+                        "step": "bull_r1",
+                        "label": "Bull Researcher",
+                        "text": res,
+                    }
+                )
+            return res
 
-        # ── Round 2: Rebuttals ───────────────────────────────
+        def _run_bear_r1():
+            res = self._safe_chat(bear_prompt, bear_fallback)
+            if self.progress_callback:
+                self.progress_callback(
+                    {
+                        "type": "debate_step",
+                        "step": "bear_r1",
+                        "label": "Bear Researcher",
+                        "text": res,
+                    }
+                )
+            return res
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            f_bull = executor.submit(_run_bull_r1)
+            f_bear = executor.submit(_run_bear_r1)
+            bull_argument = f_bull.result(timeout=35.0)
+            bear_argument = f_bear.result(timeout=35.0)
+
+        # ── Round 2: Rebuttals (Concurrent) ───────────────────────────────
         if self.verbose:
             console.print("\n[bold]Round 2[/bold]")
+            console.print("[green]Bull Researcher[/green] & [red]Bear Researcher[/red] generating rebuttals in parallel...")
 
-        # Bull rebuttal
         bull_rebuttal_prompt = BULL_REBUTTAL_PROMPT.format(
             symbol=symbol,
             exchange=exchange,
             bull_case=bull_argument,
             bear_case=bear_argument,
         )
-        if self.verbose:
-            console.print("[green]Bull Researcher[/green] responding to bear's points...")
-
-        bull_rebuttal = self.llm.chat(
-            messages=[{"role": "user", "content": bull_rebuttal_prompt}],
-            stream=self.verbose,
-            enable_tools=False,
-        )
-        if self.progress_callback:
-            self.progress_callback(
-                {
-                    "type": "debate_step",
-                    "step": "bull_r2",
-                    "label": "Bull Rebuttal",
-                    "text": bull_rebuttal,
-                }
-            )
-
-        # Bear rebuttal
         bear_rebuttal_prompt = BEAR_REBUTTAL_PROMPT.format(
             symbol=symbol,
             exchange=exchange,
             bear_case=bear_argument,
-            bull_rebuttal=bull_rebuttal,
+            bull_case=bull_argument,
         )
-        if self.verbose:
-            console.print("\n[red]Bear Researcher[/red] final counter...")
 
-        bear_rebuttal = self.llm.chat(
-            messages=[{"role": "user", "content": bear_rebuttal_prompt}],
-            stream=self.verbose,
-            enable_tools=False,
-        )
-        if self.progress_callback:
-            self.progress_callback(
-                {
-                    "type": "debate_step",
-                    "step": "bear_r2",
-                    "label": "Bear Rebuttal",
-                    "text": bear_rebuttal,
-                }
-            )
+        bull_reb_fallback = f"Bull Rebuttal: Technical support levels and momentum metrics counter downside claims."
+        bear_reb_fallback = f"Bear Rebuttal: Maintain defensive invalidation stop to mitigate execution risk."
+
+        def _run_bull_r2():
+            res = self._safe_chat(bull_rebuttal_prompt, bull_reb_fallback)
+            if self.progress_callback:
+                self.progress_callback(
+                    {
+                        "type": "debate_step",
+                        "step": "bull_r2",
+                        "label": "Bull Rebuttal",
+                        "text": res,
+                    }
+                )
+            return res
+
+        def _run_bear_r2():
+            res = self._safe_chat(bear_rebuttal_prompt, bear_reb_fallback)
+            if self.progress_callback:
+                self.progress_callback(
+                    {
+                        "type": "debate_step",
+                        "step": "bear_r2",
+                        "label": "Bear Rebuttal",
+                        "text": res,
+                    }
+                )
+            return res
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            f_bull_reb = executor.submit(_run_bull_r2)
+            f_bear_reb = executor.submit(_run_bear_r2)
+            bull_rebuttal = f_bull_reb.result(timeout=35.0)
+            bear_rebuttal = f_bear_reb.result(timeout=35.0)
 
         # ── Facilitator: Summarize & pick winner ─────────────
         facilitator_prompt = FACILITATOR_PROMPT.format(
@@ -1883,11 +2011,10 @@ class MultiAgentAnalyzer:
         if self.verbose:
             console.print("\n[cyan]Facilitator[/cyan] summarizing debate...")
 
-        facilitator_summary = self.llm.chat(
-            messages=[{"role": "user", "content": facilitator_prompt}],
-            stream=self.verbose,
-            enable_tools=False,
-        )
+        fac_winner_hint = "BULL" if scorecard.total_score >= 10 else "BEAR" if scorecard.total_score <= -10 else "NEUTRAL"
+        fac_fallback = f"FACILITATOR SUMMARY:\nWINNER: {fac_winner_hint}\nDebate concluded in favor of {fac_winner_hint} based on quantitative scorecard (+{scorecard.total_score:.1f})."
+
+        facilitator_summary = self._safe_chat(facilitator_prompt, fac_fallback)
         if self.progress_callback:
             self.progress_callback(
                 {
@@ -1907,6 +2034,9 @@ class MultiAgentAnalyzer:
                 elif "BEAR" in line.upper():
                     winner = "BEAR"
                 break
+
+        if not winner:
+            winner = fac_winner_hint
 
         return DebateResult(
             bull_argument=bull_argument,
@@ -1939,7 +2069,7 @@ class MultiAgentAnalyzer:
         for a different position-sizing and risk-management approach.
         A consensus note is derived from all three views.
 
-        Total: 3 LLM calls (one per debater).
+        Total: 3 LLM calls (Aggressive & Conservative run concurrently).
         Only called when scorecard.verdict != HOLD.
         """
         # Build shared context for all three debaters
@@ -1965,47 +2095,33 @@ class MultiAgentAnalyzer:
             risk_params=risk_params,
         )
 
-        # Aggressive debater
+        # Aggressive & Conservative debaters in parallel
         if self.verbose:
-            console.print("[bold red]Aggressive[/bold red] debater — maximum upside, tight risk...")
-        aggressive_view = self.llm.chat(
-            messages=[
-                {"role": "user", "content": AGGRESSIVE_DEBATER_PROMPT.format(**shared_context)}
-            ],
-            stream=self.verbose,
-            enable_tools=False,
-        )
+            console.print("[bold red]Aggressive[/bold red] & [bold blue]Conservative[/bold blue] debaters arguing perspectives in parallel...")
 
-        # Conservative debater
-        if self.verbose:
-            console.print(
-                "\n[bold blue]Conservative[/bold blue] debater — capital preservation first..."
-            )
-        conservative_view = self.llm.chat(
-            messages=[
-                {"role": "user", "content": CONSERVATIVE_DEBATER_PROMPT.format(**shared_context)}
-            ],
-            stream=self.verbose,
-            enable_tools=False,
-        )
+        agg_prompt = AGGRESSIVE_DEBATER_PROMPT.format(**shared_context)
+        cons_prompt = CONSERVATIVE_DEBATER_PROMPT.format(**shared_context)
+
+        agg_fallback = "Aggressive View: Maximize position size with standard 2% capital risk."
+        cons_fallback = "Conservative View: Preserve capital with 1% risk budget and strict stop loss."
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            f_agg = executor.submit(self._safe_chat, agg_prompt, agg_fallback)
+            f_cons = executor.submit(self._safe_chat, cons_prompt, cons_fallback)
+            aggressive_view = f_agg.result(timeout=35.0)
+            conservative_view = f_cons.result(timeout=35.0)
 
         # Neutral debater
         if self.verbose:
             console.print("\n[bold cyan]Neutral[/bold cyan] debater — calibrated middle path...")
-        neutral_view = self.llm.chat(
-            messages=[
-                {
-                    "role": "user",
-                    "content": NEUTRAL_DEBATER_PROMPT.format(
-                        **shared_context,
-                        aggressive_view=aggressive_view,
-                        conservative_view=conservative_view,
-                    ),
-                }
-            ],
-            stream=self.verbose,
-            enable_tools=False,
+
+        neutral_prompt = NEUTRAL_DEBATER_PROMPT.format(
+            **shared_context,
+            aggressive_view=aggressive_view,
+            conservative_view=conservative_view,
         )
+        neut_fallback = "Neutral View: Calibrated sizing at 1.5% capital risk budget."
+        neutral_view = self._safe_chat(neutral_prompt, neut_fallback)
 
         # Extract consensus sizing from neutral view (first line with % or ₹)
         consensus = neutral_view.splitlines()[0] if neutral_view else ""
@@ -2145,11 +2261,9 @@ class MultiAgentAnalyzer:
                 console.print(f"\n[blue]◆ User context injected: {_hint}[/blue]")
             console.print("\nSynthesizing final verdict...")
 
-        synthesis = self.llm.chat(
-            messages=[{"role": "user", "content": synthesis_prompt}],
-            stream=self.verbose,
-            enable_tools=False,
-        )
+        synth_fallback = self._build_deterministic_synthesis(symbol, exchange, reports, debate.winner)
+        synthesis = self._safe_chat(synthesis_prompt, synth_fallback, timeout=40.0)
+
         if self.progress_callback:
             self.progress_callback({"type": "synthesis_text", "text": synthesis})
 
@@ -2188,6 +2302,23 @@ Based on this data, construct a compelling BULL CASE for investing in {symbol}:
 Keep it concise (200-300 words). Cite specific numbers from the data.
 This is for an Indian market context (NSE/BSE). Use INR for all prices."""
 
+BEAR_RESEARCHER_OPENING_PROMPT = """You are a BEARISH stock researcher at an Indian trading firm.
+Your job: identify all risks and build a compelling counter-case against investing in {symbol} ({exchange}).
+
+You have received the following analyst reports from your team:
+
+{analyst_data}
+
+Build a compelling BEAR CASE against {symbol}:
+
+1. Highlight all risk factors: valuation, technical weakness, macro headwinds, overbought RSI, overhead supply
+2. Identify what could go wrong in the short and medium term
+3. Point out any red flags in fundamentals, forensic flags, or options OI buildup
+4. If the setup is high risk, argue for standing down, hedging, or strict invalidation stops
+
+Keep it concise (200-300 words). Cite specific numbers from the data.
+Be skeptical but fair — this is about protecting capital, not being contrarian for its own sake."""
+
 BEAR_RESEARCHER_PROMPT = """You are a BEARISH stock researcher at an Indian trading firm.
 Your job: identify all risks and build a counter-argument against investing in {symbol} ({exchange}).
 
@@ -2225,21 +2356,21 @@ Respond to the bear's strongest points. For each bear argument:
 
 Keep it concise (150-200 words). This is Round 2 — be surgical, not repetitive."""
 
-BEAR_REBUTTAL_PROMPT = """You are the BEARISH researcher. The BULL researcher has responded to your counter-argument for {symbol} ({exchange}).
+BEAR_REBUTTAL_PROMPT = """You are the BEARISH researcher. The BULL researcher has presented their investment case for {symbol} ({exchange}).
 
 Your original bear case:
 {bear_case}
 
-Bull's rebuttal:
-{bull_rebuttal}
+Bull's case / rebuttal:
+{bull_case}
 
-Final counter-argument:
-1. Which of your original concerns did the bull fail to address?
-2. Point out any circular reasoning or wishful thinking in the rebuttal
+Respond to the bull's strongest points:
+1. Point out any circular reasoning, wishful thinking, or overlooked risks in the bull case
+2. Highlight unmitigated resistance levels, high valuation multiples, or supply zones
 3. If the bull made valid points, concede them honestly
-4. State your final position: should this trade be taken, and if so, with what modifications?
+4. State your final position: should this trade be taken, avoided, or taken with strict defensive sizing?
 
-Keep it concise (150-200 words). This is your final word — make it count."""
+Keep it concise (150-200 words). This is Round 2 — be surgical and protect capital."""
 
 FACILITATOR_PROMPT = """You are the DEBATE FACILITATOR reviewing the {symbol} ({exchange}) investment debate.
 

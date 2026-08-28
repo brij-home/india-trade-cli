@@ -95,7 +95,17 @@
    - **ALWAYS** request explicit user confirmation before executing any `git commit` or `git push` to GitHub.
    - Follow Conventional Commits format (`feat:`, `fix:`, `refactor:`, `test:`, `docs:`, `perf:`).
    - **Do NOT** add `Co-Authored-By: Claude` or any AI attribution headers in commit messages.
-
+9. **Timezone Normalization (tz-naive contract)**:
+   - All historical OHLCV data pipelines ([`market/history.py`](file:///c:/Users/brije/.gemini/antigravity/scratch/india-trade-cli/market/history.py)), live tick injectors (`inject_live_tick`), and backtesting engines ([`engine/backtest.py`](file:///c:/Users/brije/.gemini/antigravity/scratch/india-trade-cli/engine/backtest.py), [`engine/backtest_vectorized.py`](file:///c:/Users/brije/.gemini/antigravity/scratch/india-trade-cli/engine/backtest_vectorized.py)) must strictly enforce timezone-naive DatetimeIndex (`df.index.tz_localize(None)`). Never perform index subtraction between mixed timezone-aware and timezone-naive timestamps.
+10. **1-Click Frictionless Execution & Bi-directional Navigation**:
+    - Never use `setDraft(text)` for interactive buttons or action chips where the user intends immediate execution. Always use `sendDraft(text)` (`autoSubmit: true, showDashboard: false`) to immediately run the action with 0 unnecessary clicks.
+    - All action modals (e.g. Top 10 Radar, Sector Drilldown, Command Palette) must dispatch the `close-all-modals` event upon triggering an action so the interface transitions seamlessly into the live analysis stream.
+    - Maintain seamless bi-directional navigation between Overview Dashboard and active card sessions (`showDashboard` state machine) without destroying loaded chat messages.
+11. **Institutional Decision Clarity & Actionable Hierarchy**:
+    - Outputs must never create confusion. Present clear hierarchical signals:
+      - Two-tier execution status (`🟢 READY` vs `🟡 STALK` vs `🔴 STAND_DOWN`).
+      - Concrete trade levels: Entry Price, Invalidation Stop-Loss, Target 1 ($2R$), Target 2 ($3.5R$).
+      - Explicit "Why Pick / Why Avoid" rationale, holding timelines (e.g. 5–15 Trading Days), and trailing stop rules (`2R Breakeven`, `Chandelier ATR 3x`).
 
 ---
 

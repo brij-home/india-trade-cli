@@ -49,9 +49,12 @@ The FastAPI sidecar (`web.api:app`) acts as the local backend service on port `8
 
 ## Operational Best Practices
 
-1. **Daemon Lifecycle**: Background daemons cache imports. After backend changes in `analysis/` or `web/`, always kill and restart the daemon.
-2. **Cache Poisoning Prevention**: Never cache empty collections (`opportunities: []`) in SQLite `analysis_cache`. Always verify `len(items) > 0` before caching and upon retrieval.
+1. **Daemon Lifecycle**: Background daemons cache imports. After backend changes in `analysis/`, `engine/`, or `web/`, always kill and restart the daemon.
+2. **Cache Poisoning Prevention**: Never cache empty collections (`opportunities: []`) in SQLite `analysis_cache`. Always verify `len(items) > 0` before caching and treat empty cache results as misses.
 3. **Route Aliasing**: Register standard alias routes (`/high_conviction` + `/top_conviction`, `/taxonomy` + `/universe_categories`) with both `GET` and `POST` support where appropriate.
 4. **Data Provenance**: Always return `data_source` (`LIVE_TICK` vs `HISTORICAL_EOD`), `as_of_date`, and `dataset_timeline` in payloads so clients understand the data basis.
-5. **Non-Blocking UI**: Modal dialogs must support backdrop dismiss (`onClick={onClose}` + `e.stopPropagation()`) and avoid blocking `alert()` calls.
+5. **1-Click Direct Execution**: Interactive buttons and quick prompts must trigger `sendDraft(cmd)` (`autoSubmit: true, showDashboard: false`) to immediately run the action without requiring manual typing or pressing Enter.
+6. **Modal Dismissal on Action**: All interactive modals (Top 10 Radar, Sector Drilldown, Command Palette) must close automatically (`close-all-modals` event) when an action button is clicked, seamlessly switching to the active stream view.
+7. **Bi-directional Navigation**: Provide a sticky `← 🏠 Dashboard` button and a `← Return to Active View` banner to toggle effortlessly between the welcome dashboard and loaded analysis cards.
+8. **Non-Blocking UI**: Modal dialogs must support backdrop dismiss (`onClick={onClose}` + `e.stopPropagation()`) and avoid blocking browser `alert()` popups.
 
