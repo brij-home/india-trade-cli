@@ -77,12 +77,25 @@
    - Pass explicit synthetic data dictionaries (`data={...}`) or monkeypatch indices/quotes to guarantee deterministic outcomes.
 2. **Windows Process & Concurrency Management**:
    - On Windows environments, run full pytest suites with `.venv\Scripts\pytest.exe -n 4` to prevent OS thread/worker pool exhaustion.
-3. **Persistent SQLite Caching**:
+3. **Persistent SQLite Caching & Poisoning Prevention**:
    - Persist computed metrics in `analysis_cache` (15m for RRG/macro, 24h for fundamental forensics) to prevent duplicate compute and eliminate redundant API calls.
-4. **Git Commits & Push ("Always Ask First")**:
+   - **Never cache empty results or failed computations**: Guard `cache_set` with `if use_cache and len(results) > 0:`. When reading from cache, if the payload has 0 items, treat it as a cache miss and recompute.
+4. **Daemon Server Hot-Reload & In-Memory Lifecycle**:
+   - Background Python daemon processes (e.g. `uvicorn web.api:app`) hold module bytecode in memory. Edits to `analysis/` or `web/` modules do not reflect in running background tasks until the server is explicitly killed and restarted.
+   - When diagnosing API or UI discrepancies, always verify background task status and restart the daemon after backend code edits.
+5. **API Route Aliasing & Method Robustness**:
+   - Provide route aliases for key skills (`@router.post("/high_conviction")` alongside `@router.post("/top_conviction")`, and `@router.get("/taxonomy")` alongside `@router.post("/taxonomy")` & `/universe_categories`) to prevent 404s from subtle frontend nomenclature or HTTP method mismatches.
+6. **Transparent Data Provenance & Fallback Metadata**:
+   - When real-time broker feeds are offline or the market is closed, quantitative engines must gracefully fall back to the most recent historical 250-day Daily OHLCV dataset without crashing.
+   - Payloads and UI cards must explicitly indicate provenance (`data_source: "LIVE_TICK"` vs `"HISTORICAL_EOD"`, `as_of_date: "28 Aug 2026"`, and `dataset_timeline: "Dataset: 250D Daily Historical Bars (As of 28 Aug 2026 Close)"`).
+7. **Modal UI/UX Standards**:
+   - All overlay dialogs must support backdrop click dismiss (`onClick={onClose}` on the fixed container) and prevent event bubbling on the modal card (`onClick={(e) => e.stopPropagation()}`).
+   - Never use blocking browser `alert(...)` popups; use non-blocking in-modal toast banners with auto-dismiss timers.
+8. **Git Commits & Push ("Always Ask First")**:
    - **ALWAYS** request explicit user confirmation before executing any `git commit` or `git push` to GitHub.
    - Follow Conventional Commits format (`feat:`, `fix:`, `refactor:`, `test:`, `docs:`, `perf:`).
    - **Do NOT** add `Co-Authored-By: Claude` or any AI attribution headers in commit messages.
+
 
 ---
 

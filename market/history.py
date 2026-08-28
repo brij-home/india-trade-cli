@@ -101,7 +101,81 @@ def get_ohlcv(
     df.set_index("date", inplace=True)
     df = df[["open", "high", "low", "close", "volume"]].astype(float)
     df.sort_index(inplace=True)
+
+    # Overlay latest live real-time tick to guarantee decision-making on fresh data
+    if kite_interval == "day" and not df.empty:
+        df = inject_live_tick(df, symbol=symbol, exchange=exchange)
+
     return df
+
+
+def inject_live_tick(
+    df: pd.DataFrame,
+    symbol: str,
+    exchange: str = "NSE",
+) -> pd.DataFrame:
+    """
+    Overlays the current second's live tick (LTP, Day High/Low, Volume) onto the OHLCV DataFrame.
+    Ensures all quantitative models evaluate the latest real-time market state.
+    """
+    try:
+        from market.quotes import get_quote
+
+        inst = f"{exchange}:{symbol}"
+        quotes = get_quote([inst])
+        q = quotes.get(inst)
+        if not q or q.last_price <= 0:
+            return df
+
+        now = datetime.now()
+        today_date = pd.Timestamp(now.date())
+
+        if df.empty:
+            new_row = pd.DataFrame(
+                [{
+                    "open": q.open or q.last_price,
+                    "high": q.high or q.last_price,
+                    "low": q.low or q.last_price,
+                    "close": q.last_price,
+                    "volume": q.volume or 0.0,
+                }],
+                index=[today_date],
+            )
+            return new_row
+
+        last_idx = df.index[-1]
+        last_date = pd.Timestamp(last_idx).date() if hasattr(last_idx, "date") else None
+
+        if last_date == now.date():
+            # Update today's existing candle with live tick
+            df.loc[last_idx, "close"] = float(q.last_price)
+            if q.high and q.high > 0:
+                df.loc[last_idx, "high"] = max(float(df.loc[last_idx, "high"]), float(q.high))
+            else:
+                df.loc[last_idx, "high"] = max(float(df.loc[last_idx, "high"]), float(q.last_price))
+            if q.low and q.low > 0:
+                df.loc[last_idx, "low"] = min(float(df.loc[last_idx, "low"]), float(q.low))
+            else:
+                df.loc[last_idx, "low"] = min(float(df.loc[last_idx, "low"]), float(q.last_price))
+            if q.volume and q.volume > 0:
+                df.loc[last_idx, "volume"] = float(q.volume)
+        else:
+            # Append today's active bar
+            new_row = pd.DataFrame(
+                [{
+                    "open": float(q.open or q.last_price),
+                    "high": float(q.high or q.last_price),
+                    "low": float(q.low or q.last_price),
+                    "close": float(q.last_price),
+                    "volume": float(q.volume or 0.0),
+                }],
+                index=[today_date],
+            )
+            df = pd.concat([df, new_row])
+
+        return df
+    except Exception:
+        return df
 
 
 def save_ohlcv_cache(key: str, data: list) -> None:
@@ -109,6 +183,7 @@ def save_ohlcv_cache(key: str, data: list) -> None:
     from market.disk_cache import save_cache
 
     save_cache(key, data)
+
 
 
 def load_ohlcv_cache(key: str) -> tuple[list, None]:

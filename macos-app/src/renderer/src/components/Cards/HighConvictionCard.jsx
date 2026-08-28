@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useInspectorStore } from '../../store/inspectorStore'
 import { useChatStore } from '../../store/chatStore'
+import { useAPI } from '../../hooks/useAPI'
 import Tooltip, { InfoBadge } from '../UI/Tooltip'
 
 const POSTURE_BADGES = {
@@ -21,11 +22,30 @@ export default function HighConvictionCard({ data, onOpenOrderTicket }) {
   const opportunities = d.opportunities || []
   const [filter, setFilter] = useState('ALL')
   const [expandedRow, setExpandedRow] = useState(null)
+  const [telegramStatus, setTelegramStatus] = useState({})
+  const { call } = useAPI()
 
   const openInspector = useInspectorStore((s) => s.openInspector)
   const setDraft = useChatStore((s) => s.setDraft)
 
   const posture = POSTURE_BADGES[d.market_posture] || POSTURE_BADGES.CHOPPY_ROTATION
+
+  const handleSendTelegram = async (opp) => {
+    setTelegramStatus((prev) => ({ ...prev, [opp.symbol]: 'sending' }))
+    try {
+      await call('/skills/execution_gate', {
+        symbol: opp.symbol,
+        exchange: 'NSE',
+        notify_telegram: true,
+      })
+      setTelegramStatus((prev) => ({ ...prev, [opp.symbol]: 'sent' }))
+      setTimeout(() => {
+        setTelegramStatus((prev) => ({ ...prev, [opp.symbol]: null }))
+      }, 3000)
+    } catch {
+      setTelegramStatus((prev) => ({ ...prev, [opp.symbol]: 'error' }))
+    }
+  }
 
   // Filter logic
   const filteredOpps = opportunities.filter((opp) => {
@@ -45,18 +65,31 @@ export default function HighConvictionCard({ data, onOpenOrderTicket }) {
           <span className="text-xl">🎯</span>
           <div>
             <div className="flex items-center gap-1.5">
-              <p className="text-muted text-[10px] uppercase tracking-widest font-ui">Market-Aware Quantitative Radar</p>
+              <p className="text-muted text-[10px] uppercase tracking-widest font-ui">Market-Aware Opportunity Radar</p>
               <InfoBadge
-                title="5-Pillar High-Conviction Model"
-                content="Combines Smart Money Concepts (SMC), Volume Footprint (RVOL), Minervini Stage 2 Trend Template, RRG Sector Momentum, and Forensic Safety."
-                metricKey="smart_funnel_pipeline"
+                title="Two-Tier Decision Engine"
+                content="Combines Strategic Conviction (Historical SMC, Minervini, RRG, Forensics) with Live Tactical Execution Gates (Live Tick, RVOL Surge, Options OI Buildup)."
+                metricKey="execution_gate_pipeline"
               />
             </div>
-            <p className="text-text text-base font-bold font-ui">Top 10 High-Conviction Opportunities</p>
+            <p className="text-text text-base font-bold font-ui">Top High-Conviction Opportunities</p>
           </div>
         </div>
 
         <div className="flex items-center gap-2">
+          {d.data_source === 'LIVE_TICK' ? (
+            <span className="text-[10px] bg-green/15 text-green border border-green/30 px-2 py-0.5 rounded font-ui font-semibold flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-green animate-pulse"></span>
+              Live Feed
+            </span>
+          ) : (
+            <span
+              className="text-[10px] bg-blue/15 text-blue border border-blue/30 px-2 py-0.5 rounded font-ui font-semibold flex items-center gap-1"
+              title={d.dataset_timeline || 'NSE Daily OHLCV (250 Bars Lookback · EOD)'}
+            >
+              📅 EOD Dataset
+            </span>
+          )}
           <span className={`text-xs px-2.5 py-1 rounded font-ui ${posture.color}`}>
             {posture.label}
           </span>
@@ -66,15 +99,27 @@ export default function HighConvictionCard({ data, onOpenOrderTicket }) {
         </div>
       </div>
 
+      {/* Dataset & Timeline Provenance Banner */}
+      <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-1.5 bg-panel/50 border border-border/50 rounded-lg text-[11px] font-ui text-muted">
+        <div className="flex items-center gap-1.5">
+          <span>📊</span>
+          <span><strong className="text-text">Dataset Provenance:</strong> {d.dataset_timeline || 'NSE Daily OHLCV (250 Bars Lookback · EOD Daily Bars)'}</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <span>Timeline: <span className="text-text font-mono font-semibold">{d.timestamp}</span></span>
+        </div>
+      </div>
+
       {/* Top-Down Dynamic Routing Context */}
       {d.top_down_rationale && (
         <div className="bg-panel border border-border/60 p-2.5 rounded-lg text-xs font-ui text-text flex items-center gap-2">
           <span className="text-amber text-sm flex-shrink-0">⚡</span>
           <p className="text-muted text-[11px] leading-snug">
-            <strong className="text-text">Market Strategy:</strong> {d.top_down_rationale}
+            <strong className="text-text">Strategy Context:</strong> {d.top_down_rationale}
           </p>
         </div>
       )}
+
 
       {/* Leading Sectors Strip */}
       {d.leading_sectors && d.leading_sectors.length > 0 && (
@@ -125,6 +170,13 @@ export default function HighConvictionCard({ data, onOpenOrderTicket }) {
             const scoreColor =
               opp.conviction_score >= 85 ? 'text-green' : opp.conviction_score >= 70 ? 'text-amber' : 'text-blue'
             const liqBadge = LIQUIDITY_TIER_BADGES[opp.liquidity_tier] || LIQUIDITY_TIER_BADGES.TIER_2_ACTIVE_LIQUID
+            const tgState = telegramStatus[opp.symbol]
+
+            // Determine execution readiness badge
+            const isReady = opp.rvol_20d >= 1.5 || (opp.smc_signals && opp.smc_signals.some((s) => s.includes('BOS')))
+            const readinessBadge = isReady
+              ? { label: '🟢 READY', color: 'bg-green/15 text-green border-green/30' }
+              : { label: '🟡 STALK', color: 'bg-amber/15 text-amber border-amber/30' }
 
             return (
               <div
@@ -154,16 +206,20 @@ export default function HighConvictionCard({ data, onOpenOrderTicket }) {
                         <span className={`text-[9px] px-1.5 py-0.2 rounded border font-mono ${liqBadge.color}`}>
                           ₹{opp.est_turnover_cr} Cr / day
                         </span>
+                        <span>•</span>
+                        <span className={`text-[9px] px-1.5 py-0.2 rounded border font-mono font-bold ${readinessBadge.color}`}>
+                          {readinessBadge.label}
+                        </span>
                       </p>
                     </div>
                   </div>
 
                   {/* Conviction Gauge & Action Buttons */}
-                  <div className="flex items-center gap-2 sm:justify-end">
+                  <div className="flex items-center gap-2 sm:justify-end flex-wrap">
                     <Tooltip
-                      title={`${opp.symbol} Conviction Score`}
-                      content="Multi-model alignment: SMC Price Action + RVOL Volume + Minervini Stage 2 + RRG Sector Momentum + Forensic Safety."
-                      metricKey="smart_funnel_pipeline"
+                      title={`${opp.symbol} Strategic Conviction`}
+                      content="Historical multi-pillar model: SMC Fractal Structure + RVOL Footprint + Minervini Stage 2 + RRG Sector Momentum + Forensic Quality."
+                      metricKey="strategic_scoring"
                     >
                       <div className="flex items-center gap-1.5 bg-elevated px-2.5 py-1 rounded border border-border/60">
                         <span className="text-[10px] text-muted uppercase font-ui">Conviction</span>
@@ -172,6 +228,20 @@ export default function HighConvictionCard({ data, onOpenOrderTicket }) {
                         </span>
                       </div>
                     </Tooltip>
+
+                    <button
+                      onClick={() => handleSendTelegram(opp)}
+                      disabled={tgState === 'sending' || tgState === 'sent'}
+                      className={`px-2 py-1 rounded border text-[11px] font-ui transition-colors cursor-pointer flex items-center gap-1 ${
+                        tgState === 'sent'
+                          ? 'bg-green/15 text-green border-green/30 font-bold'
+                          : 'bg-elevated hover:bg-panel border-border/60 text-muted hover:text-text'
+                      }`}
+                      title="Send Instant Actionable Alert to Telegram"
+                    >
+                      <span>📱</span>
+                      <span>{tgState === 'sending' ? 'Sending…' : tgState === 'sent' ? '✓ Sent' : 'Telegram'}</span>
+                    </button>
 
                     <button
                       onClick={() => setExpandedRow(isExpanded ? null : opp.symbol)}
@@ -250,8 +320,14 @@ export default function HighConvictionCard({ data, onOpenOrderTicket }) {
                         </button>
                       </div>
                     </div>
+
+                    <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-border/20 mt-1 text-[10px] text-muted">
+                      <span>📊 Data Basis: <strong className="text-text font-mono">{opp.dataset_info || 'NSE Daily OHLCV (250 Bars)'}</strong></span>
+                      <span>As of: <strong className="text-text font-mono">{opp.as_of_date || d.timestamp}</strong></span>
+                    </div>
                   </div>
                 )}
+
               </div>
             )
           })
@@ -260,7 +336,7 @@ export default function HighConvictionCard({ data, onOpenOrderTicket }) {
 
       {/* Footer Summary */}
       <div className="text-[11px] text-muted font-ui leading-relaxed bg-panel p-2.5 rounded border border-border/40">
-        📌 <strong>Playbook:</strong> Only enter high-conviction opportunities when price reaches the defined entry zone with tight invalidation SL. When +2R is reached, scale out 33%–50% and trail remaining runner using Chandelier ATR.
+        📌 <strong>Execution Rule:</strong> Only execute when live status is 🟢 <strong>READY</strong> (trigger active within &plusmn;0.5% entry zone). When 🟡 <strong>STALK</strong>, set limit order near 20-EMA/Demand OB. When +2R is reached, scale out 33%–50% and trail with Chandelier ATR.
       </div>
     </div>
   )

@@ -1002,6 +1002,62 @@ def push_brief(brief_text: str) -> None:
     send_push(f"🇮🇳 Morning Brief\n\n{brief_text}")
 
 
+def format_execution_alert_message(d: dict) -> str:
+    """
+    Format a rich, actionable Execution Readiness notification for Telegram.
+    Includes exact Entry, Stop Loss, Targets, Risk:Reward, and quick copy-paste commands.
+    """
+    symbol = d.get("symbol", "UNKNOWN")
+    sector = d.get("sector", "General")
+    sector_icon = d.get("sector_icon", "🏢")
+    ltp = d.get("ltp", 0.0)
+    status = d.get("execution_status", "STALK")
+    strat_score = d.get("strategic_score", 0)
+    tact_score = d.get("tactical_score", 0)
+    entry = d.get("entry_price", ltp)
+    sl = d.get("stop_loss", ltp * 0.97)
+    t1 = d.get("target_1", ltp * 1.05)
+    t2 = d.get("target_2", ltp * 1.08)
+    rr = d.get("risk_reward_ratio", 2.0)
+    setup_title = d.get("setup_title", "Institutional Setup")
+    rvol = d.get("rvol", 1.5)
+    oi_regime = d.get("options_oi_regime", "LONG_BUILDUP")
+    catalysts = d.get("catalysts", [])
+
+    status_badge = "🚀 READY TO EXECUTE" if status == "READY" else "🎯 STALK ON RETEST"
+
+    cat_text = "\n".join([f"• {c}" for c in catalysts[:3]]) if catalysts else "• Confirmed Institutional Structure"
+
+    msg = (
+        f"{status_badge}\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"<b>{symbol}</b> ({sector_icon} {sector}) · <b>₹{ltp:,.2f}</b>\n"
+        f"<i>{setup_title}</i>\n\n"
+        f"📊 <b>Scores:</b> Strategic: <b>{strat_score}/100</b> | Live Tactical: <b>{tact_score}/100</b>\n"
+        f"⚡ <b>RVOL:</b> {rvol:.1f}x | <b>OI Flow:</b> {oi_regime}\n\n"
+        f"🎯 <b>Actionable Blueprint:</b>\n"
+        f"• Entry Zone: <code>₹{entry:,.2f}</code>\n"
+        f"• Invalidation SL: <code>₹{sl:,.2f}</code>\n"
+        f"• Target 1 (2R): <code>₹{t1:,.2f}</code>\n"
+        f"• Target 2 (3.5R): <code>₹{t2:,.2f}</code>\n"
+        f"• Risk : Reward: <b>1:{rr} R:R</b>\n\n"
+        f"💡 <b>Live Catalysts:</b>\n"
+        f"{cat_text}\n\n"
+        f"⚡ <b>Execute / Size:</b> <code>/size {symbol} {entry} {sl}</code>"
+    )
+    return msg
+
+
+def push_execution_alert(report_dict: dict) -> None:
+    """Push rich Execution Readiness notification to Telegram."""
+    try:
+        msg = format_execution_alert_message(report_dict)
+        send_push(msg)
+    except Exception:
+        pass
+
+
+
 # ── Alert Integration ────────────────────────────────────────
 
 

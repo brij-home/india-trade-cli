@@ -205,14 +205,19 @@ function parseCommand(input) {
       return { endpoint: '/skills/volume_profile', body: { symbol: sym }, cardType: 'markdown' }
     }
     case 'top10': case 'top-10': case 'conviction': case 'radar': {
-      const u = args[0] || 'nifty50'
+      const u = args[0] || 'auto_market_aware'
       const refresh = args.includes('--refresh') || args.includes('-r')
       return { endpoint: '/skills/top_conviction', body: { universe: u, top_n: 10, refresh }, cardType: 'top_conviction' }
+    }
+    case 'bigmove': case 'big_move': case 'big-move': case 'squeeze': {
+      const sym = (args[0] ?? 'NIFTY').toUpperCase()
+      return { endpoint: '/skills/big_move', body: { symbol: sym }, cardType: 'big_move' }
     }
 
     default:
       // Fall through to AI chat — session_id injected in submit()
       return { endpoint: '/skills/chat', body: { message: input }, cardType: 'markdown' }
+
   }
 }
 

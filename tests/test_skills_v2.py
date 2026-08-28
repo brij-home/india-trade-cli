@@ -865,6 +865,100 @@ class TestSkillSMCAndLifecycle:
         assert "THEMATIC" in types
         assert "SECTOR" in types
 
+    def test_skill_big_move(self, client):
+        with patch("analysis.big_move.predict_large_move") as mock_pred:
+            from analysis.big_move import BigMovePrediction, SqueezeState, OptionsFlowBias
+            mock_pred.return_value = BigMovePrediction(
+                symbol="NIFTY",
+                ltp=24500.0,
+                directional_bias="BULLISH",
+                directional_probability=88,
+                prediction_verdict="EXPLOSIVE_BULLISH_EXPANSION",
+                timing_trigger="TRIGGER_NOW",
+                expected_move_pts=350.0,
+                expected_move_pct=1.43,
+                target_price=24850.0,
+                invalidation_price=24300.0,
+                risk_reward_ratio=1.75,
+                squeeze=SqueezeState(False, True, 3, 45.2, "BULLISH_EXPANSION", 24600, 24300, 24550, 24350),
+                options_flow=OptionsFlowBias(True, 1.35, 24500, "LONG_BUILDUP", 100000, 135000, 24800, 24300, "AGGRESSIVE_BULLISH"),
+                catalysts=["Squeeze Fired", "Aggressive Long Buildup"],
+                action_plan="Enter Bullish Breakout",
+            )
+            r = client.post("/skills/big_move", json={"symbol": "NIFTY", "exchange": "NSE"})
+            assert r.status_code == 200
+            d = r.json()["data"]
+            assert d["directional_bias"] == "BULLISH"
+            assert d["directional_probability"] == 88
+            assert d["prediction_verdict"] == "EXPLOSIVE_BULLISH_EXPANSION"
+
+    def test_skill_execution_gate(self, client):
+        with patch("analysis.execution_gate.evaluate_execution_gate") as mock_eval:
+            from analysis.execution_gate import ExecutionGateReport
+            mock_eval.return_value = ExecutionGateReport(
+                symbol="JSWSTEEL",
+                sector="Metals",
+                sector_icon="⛏️",
+                ltp=1337.50,
+                strategic_score=86,
+                tactical_score=88,
+                execution_status="READY",
+                setup_title="Stage 2 Superperformer",
+                trade_bias="LONG",
+                entry_price=1337.50,
+                stop_loss=1285.80,
+                target_1=1440.80,
+                target_2=1518.40,
+                risk_reward_ratio=2.0,
+                rvol=1.6,
+                options_oi_regime="LONG_BUILDUP",
+                squeeze_fired=True,
+                catalysts=["Squeeze Fired"],
+                action_summary="Execute now",
+                telegram_sent=False,
+            )
+            r = client.post("/skills/execution_gate", json={"symbol": "JSWSTEEL", "notify_telegram": False})
+            assert r.status_code == 200
+            d = r.json()["data"]
+            assert d["execution_status"] == "READY"
+            assert d["strategic_score"] == 86
+            assert d["tactical_score"] == 88
+
+    def test_skill_scan_and_alert(self, client):
+        with patch("analysis.execution_gate.scan_and_alert_execution_candidates") as mock_scan:
+            from analysis.execution_gate import ExecutionGateReport
+            mock_scan.return_value = [
+                ExecutionGateReport(
+                    symbol="JSWSTEEL",
+                    sector="Metals",
+                    sector_icon="⛏️",
+                    ltp=1337.50,
+                    strategic_score=86,
+                    tactical_score=88,
+                    execution_status="READY",
+                    setup_title="Stage 2 Superperformer",
+                    trade_bias="LONG",
+                    entry_price=1337.50,
+                    stop_loss=1285.80,
+                    target_1=1440.80,
+                    target_2=1518.40,
+                    risk_reward_ratio=2.0,
+                    rvol=1.6,
+                    options_oi_regime="LONG_BUILDUP",
+                    squeeze_fired=True,
+                    catalysts=["Squeeze Fired"],
+                    action_summary="Execute now",
+                    telegram_sent=True,
+                )
+            ]
+            r = client.post("/skills/scan_and_alert", json={"universe": "auto_market_aware", "notify_telegram": True})
+            assert r.status_code == 200
+            d = r.json()["data"]
+            assert d["total_candidates"] == 1
+            assert d["candidates"][0]["symbol"] == "JSWSTEEL"
+
+
+
 
 
 

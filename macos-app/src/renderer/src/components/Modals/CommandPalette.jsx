@@ -19,6 +19,8 @@ const POPULAR_SYMBOLS = [
 
 const QUICK_ACTIONS = [
   { label: 'Morning Market Brief & Macro Posture', cmd: 'brief', icon: '🌅', cat: 'Intelligence' },
+  { label: 'High-Probability Big Move Predictor (NIFTY)', cmd: 'bigmove NIFTY', icon: '🚀', cat: 'Prediction' },
+  { label: 'Top 10 High-Conviction Opportunity Radar', cmd: 'radar', icon: '🎯', cat: 'Screening' },
   { label: 'Smart Funnel Multi-Agent Screening (NIFTY 50)', cmd: 'funnel nifty_50', icon: '🎯', cat: 'Screening' },
   { label: 'Market Structure & Smart Money Concepts (RELIANCE)', cmd: 'structure RELIANCE', icon: '🏛️', cat: 'Price Action' },
   { label: 'Multibagger & Minervini Trend Template (TRENT)', cmd: 'multibagger TRENT', icon: '💎', cat: 'Positional' },
@@ -34,6 +36,7 @@ const QUICK_ACTIONS = [
   { label: 'View Active Holdings & Portfolio Margin', cmd: 'holdings', icon: '💼', cat: 'Portfolio' },
   { label: 'Backtest Strategy (RELIANCE rsi)', cmd: 'backtest RELIANCE rsi', icon: '🧪', cat: 'Quant' },
 ]
+
 
 export default function CommandPalette({ isOpen, onClose, onOpenOrderTicket }) {
   const [query, setQuery] = useState('')

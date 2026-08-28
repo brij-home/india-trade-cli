@@ -53,7 +53,7 @@ SECTOR_TAXONOMY: dict[str, dict[str, Any]] = {
         "index_symbol": "^CNXIT",
         "description": "Tier-1 IT Giants, High-Growth ER&D Midcaps, and New-Age Tech Platforms.",
         "symbols": [
-            "TCS", "INFY", "HCLTECH", "WIPRO", "TECHM", "LTIM", "COFORGE", "PERSISTENT",
+            "TCS", "INFY", "HCLTECH", "WIPRO", "TECHM", "COFORGE", "PERSISTENT",
             "MPHASIS", "KPITTECH", "TATAELXSI", "OFSS", "CYIENT", "ZOMATO", "NAUKRI",
             "MAPMYINDIA", "DIXON", "POLICYBZR",
         ],
@@ -66,7 +66,7 @@ SECTOR_TAXONOMY: dict[str, dict[str, Any]] = {
         "symbols": [
             "TATAMOTORS", "MARUTI", "M&M", "BAJAJ-AUTO", "HEROMOTOCO", "EICHERMOT",
             "TVSMOTOR", "ASHOKLEY", "BHARATFORG", "MOTHERSON", "SONACOMS", "UNOINDA",
-            "EXIDEIND", "AMARAJABAT", "MRF", "APOLLOTYRE", "BALKRISIND", "BOSCHLTD",
+            "EXIDEIND", "MRF", "APOLLOTYRE", "BALKRISIND", "BOSCHLTD",
         ],
     },
     "defence": {
@@ -75,10 +75,11 @@ SECTOR_TAXONOMY: dict[str, dict[str, Any]] = {
         "index_symbol": "^CNXDEFENCE",
         "description": "Defence PSUs, Precision Aerospace, Drones, and Electronic Warfare.",
         "symbols": [
-            "HAL", "BEL", "MAZDOCK", "COCHINSHIP", "BDL", "DATAATAM", "ZENIT",
+            "HAL", "BEL", "MAZDOCK", "COCHINSHIP", "BDL", "DATAPATTNS", "ZENTEC",
             "SOLARINDS", "MTARTECH", "PARAS", "ASTRA", "CYIENTDLM",
         ],
     },
+
     "energy": {
         "name": "Energy, Power & Green Transition",
         "icon": "⚡",
@@ -308,18 +309,19 @@ def resolve_dynamic_universe(
 
             target_sectors = (leading_ids + improving_ids)[:top_n_sectors]
             if not target_sectors:
-                target_sectors = ["banking", "it", "auto"]  # safe fallback
+                target_sectors = ["metals", "it", "pharma"]  # safe leading fallback
 
             symbols_set = set()
             for s_id in target_sectors:
-                symbols_set.update(SECTOR_TAXONOMY[s_id]["symbols"][:10])
+                symbols_set.update(SECTOR_TAXONOMY[s_id]["symbols"][:5])
 
             # Always add high volume surge candidates
-            symbols_set.update(THEMATIC_PRESETS["volume_surges_rvol"]["symbols"][:8])
+            symbols_set.update(THEMATIC_PRESETS["volume_surges_rvol"]["symbols"][:4])
 
             resolved = list(symbols_set)[:max_stocks]
             reason = f"Top-down routed to leading sectors ({', '.join([s.upper() for s in target_sectors])}) + volume surge leaders."
             return resolved, reason
+
 
         except Exception as e:
             # Fallback to NIFTY 50

@@ -69,8 +69,15 @@ export default function OrderTicketModal({ isOpen, onClose, initialData = {} }) 
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xs p-4 select-none">
-      <div className="bg-panel border border-border rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl font-mono">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xs p-4 select-none animate-in fade-in duration-200"
+      onClick={onClose}
+    >
+      <div
+        className="bg-panel border border-border rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl font-mono animate-in zoom-in-95 duration-200"
+        onClick={(e) => e.stopPropagation()}
+      >
+
         {/* Modal Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-border/50 bg-panel/40">
           <div className="flex items-center gap-2">

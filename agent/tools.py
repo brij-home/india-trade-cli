@@ -1583,20 +1583,83 @@ def build_registry() -> ToolRegistry:
     reg.register(
         name="scan_top_conviction_opportunities",
         description=(
-            "Scan stock watchlists (e.g. 'nifty50', 'high_momentum', 'banking', 'it') and return the "
+            "Scan stock watchlists (e.g. 'auto_market_aware', 'nifty50', 'banking', 'it') and return the "
             "Top 10 highest-conviction trading opportunities ranked by multi-pillar quantitative alignment "
             "(SMC, Volume Profile, Minervini Stage 2, RRG Momentum, and Forensic Safety)."
         ),
         parameters={
             "type": "object",
             "properties": {
-                "universe": {"type": "string", "default": "nifty50", "description": "Preset watchlist or comma-separated symbols"},
+                "universe": {"type": "string", "default": "auto_market_aware", "description": "Preset watchlist or sector"},
                 "top_n": {"type": "integer", "default": 10, "description": "Number of top opportunities to return"},
             },
         },
-        fn=lambda universe="nifty50", top_n=10: __import__(
+        fn=lambda universe="auto_market_aware", top_n=10: __import__(
             "analysis.high_conviction", fromlist=["scan_high_conviction_opportunities"]
         ).scan_high_conviction_opportunities(universe=universe, top_n=top_n).to_dict(),
+    )
+
+    # ── High-Probability Big Move & Squeeze Direction ──────────
+
+    reg.register(
+        name="predict_large_move_direction",
+        description=(
+            "Predict high-probability directional breakout and timing for large moves using "
+            "John Carter Volatility Squeeze (TTM Squeeze), Options OI Flow, and Volume Expansion on real-time live market ticks."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "symbol": {"type": "string", "description": "Stock symbol e.g. 'TATASTEEL' or 'NIFTY'"},
+                "exchange": {"type": "string", "default": "NSE", "description": "Exchange ('NSE', 'NFO', 'BSE')"},
+            },
+            "required": ["symbol"],
+        },
+        fn=lambda symbol, exchange="NSE": __import__(
+            "analysis.big_move", fromlist=["predict_large_move"]
+        ).predict_large_move(symbol=symbol, exchange=exchange).to_dict(),
+    )
+
+    # ── Two-Tier Execution Gate & Telegram Alerts ──────────────
+
+    reg.register(
+        name="evaluate_execution_gate",
+        description=(
+            "Evaluate two-tier execution readiness: Strategic Conviction (Historical) vs Tactical Microstructure (Live). "
+            "Returns status ('READY', 'STALK', 'STAND_DOWN') and optionally dispatches instant Telegram alert."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "symbol": {"type": "string", "description": "Stock symbol e.g. 'JSWSTEEL'"},
+                "exchange": {"type": "string", "default": "NSE"},
+                "notify_telegram": {"type": "boolean", "default": False},
+            },
+            "required": ["symbol"],
+        },
+        fn=lambda symbol, exchange="NSE", notify_telegram=False: __import__(
+            "analysis.execution_gate", fromlist=["evaluate_execution_gate"]
+        ).evaluate_execution_gate(symbol=symbol, exchange=exchange, notify_telegram=notify_telegram).to_dict(),
+    )
+
+    reg.register(
+        name="scan_and_alert_execution_candidates",
+        description=(
+            "Scan universe, evaluate two-tier execution readiness, and push Telegram notifications for all READY or STALK candidates."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "universe": {"type": "string", "default": "auto_market_aware"},
+                "top_n": {"type": "integer", "default": 5},
+                "notify_telegram": {"type": "boolean", "default": True},
+            },
+        },
+        fn=lambda universe="auto_market_aware", top_n=5, notify_telegram=True: [
+            c.to_dict() for c in __import__(
+                "analysis.execution_gate", fromlist=["scan_and_alert_execution_candidates"]
+            ).scan_and_alert_execution_candidates(universe=universe, top_n=top_n, notify_telegram=notify_telegram)
+        ],
     )
 
     # ── Tag all registered tools as read-only + concurrency-safe ──
@@ -1609,3 +1672,5 @@ def build_registry() -> ToolRegistry:
         tool["permission"] = "auto"
 
     return reg
+
+

@@ -2,49 +2,34 @@ import { useState, useEffect } from 'react'
 import { useAPI } from '../../hooks/useAPI'
 import HighConvictionCard from '../Cards/HighConvictionCard'
 
-const DEFAULT_CATEGORIES = [
-  { id: 'auto_market_aware', name: '⚡ Dynamic Auto-Hunting (Leading Sectors)', type: 'THEMATIC' },
-  { id: 'most_liquid_today', name: '💧 High Liquidity (Top Turnover)', type: 'THEMATIC' },
-  { id: 'volume_surges_rvol', name: '🚀 Unusual Volume Surges (RVOL > 1.5x)', type: 'THEMATIC' },
-  { id: 'multibagger_hunters', name: '💎 Multibagger Compounders', type: 'THEMATIC' },
-  { id: 'nifty50', name: '🏆 NIFTY 50 Bluechips', type: 'THEMATIC' },
-  { id: 'banking', name: '🏦 Banking & Financial Services', type: 'SECTOR' },
-  { id: 'it', name: '💻 IT & Technology', type: 'SECTOR' },
-  { id: 'auto', name: '🚗 Automobiles & EV', type: 'SECTOR' },
-  { id: 'defence', name: '🛡️ Defence & Aerospace', type: 'SECTOR' },
-  { id: 'energy', name: '⚡ Energy & Power Renewables', type: 'SECTOR' },
-  { id: 'metals', name: '⛏️ Metals & Mining', type: 'SECTOR' },
-  { id: 'pharma', name: '💊 Pharma & Healthcare', type: 'SECTOR' },
-  { id: 'fmcg', name: '🛒 FMCG & Retail', type: 'SECTOR' },
-  { id: 'infra', name: '🏗️ Real Estate & Infra', type: 'SECTOR' },
-  { id: 'chemicals', name: '🧪 Specialty Chemicals', type: 'SECTOR' },
-  { id: 'telecom', name: '📡 Telecom & Logistics', type: 'SECTOR' },
-]
-
 export default function TopOpportunitiesModal({ isOpen, onClose }) {
   const [data, setData] = useState(null)
-  const [universe, setUniverse] = useState('auto_market_aware')
-  const [categories, setCategories] = useState(DEFAULT_CATEGORIES)
   const [isScanning, setIsScanning] = useState(false)
-  const { call, get } = useAPI()
+  const [universe, setUniverse] = useState('auto_market_aware')
+  const [categories, setCategories] = useState([])
+  const [tgNotification, setTgNotification] = useState(null)
+  const { call } = useAPI()
 
-  // Load universe taxonomy from backend
+  // Fetch taxonomy categories on mount
   useEffect(() => {
-    if (isOpen) {
-      get('/skills/universe_categories')
-        .then((res) => {
-          if (res?.data?.categories) {
-            setCategories(res.data.categories)
-          }
-        })
-        .catch(() => {})
+    async function loadTaxonomy() {
+      try {
+        const res = await call('/skills/taxonomy')
+        if (res?.data?.categories) {
+          setCategories(res.data.categories)
+        }
+      } catch (err) {
+        console.error('Failed to load taxonomy:', err)
+      }
     }
-  }, [isOpen])
+    loadTaxonomy()
+  }, [])
 
+  // Scan opportunities
   const fetchOpportunities = async (targetUniverse = universe, refresh = false) => {
     setIsScanning(true)
     try {
-      const res = await call('/skills/top_conviction', {
+      const res = await call('/skills/high_conviction', {
         universe: targetUniverse,
         top_n: 10,
         refresh: refresh,
@@ -73,14 +58,43 @@ export default function TopOpportunitiesModal({ isOpen, onClose }) {
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [isOpen, onClose])
 
+  const handlePushAllTelegram = async () => {
+    try {
+      setTgNotification({ type: 'loading', text: 'Broadcasting alerts to Telegram…' })
+      const res = await call('/skills/scan_and_alert', {
+        universe: universe,
+        top_n: 5,
+        notify_telegram: true,
+      })
+      const count = res?.data?.total_candidates || 0
+      setTgNotification({
+        type: 'success',
+        text: `✓ Dispatched ${count} actionable READY & STALK alert(s) to Telegram!`,
+      })
+      setTimeout(() => setTgNotification(null), 4000)
+    } catch {
+      setTgNotification({
+        type: 'error',
+        text: '⚠️ Could not send Telegram alert. Check your TELEGRAM_BOT_TOKEN & CHAT_ID.',
+      })
+      setTimeout(() => setTgNotification(null), 5000)
+    }
+  }
+
   if (!isOpen) return null
 
   const thematics = categories.filter((c) => c.type === 'THEMATIC')
   const sectors = categories.filter((c) => c.type === 'SECTOR')
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-fade-in">
-      <div className="bg-surface border border-border rounded-2xl w-full max-w-4xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden font-ui">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-in fade-in duration-200 select-none"
+      onClick={onClose}
+    >
+      <div
+        className="bg-surface border border-border rounded-2xl w-full max-w-4xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden font-ui animate-in zoom-in-95 duration-200"
+        onClick={(e) => e.stopPropagation()}
+      >
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-6 py-4 border-b border-border bg-panel flex-shrink-0">
           <div className="flex items-center gap-3">
@@ -89,11 +103,11 @@ export default function TopOpportunitiesModal({ isOpen, onClose }) {
               <h2 className="text-base font-bold text-text flex items-center gap-2">
                 <span>Market-Aware Opportunity Cockpit</span>
                 <span className="text-xs bg-amber/15 text-amber border border-amber/30 px-2 py-0.5 rounded font-mono font-semibold">
-                  Zero-Token Radar
+                  Two-Tier Radar
                 </span>
               </h2>
               <p className="text-xs text-muted mt-0.5">
-                Top-down sector momentum routing + liquidity-gated multi-pillar ranking
+                Strategic Quant (Historical) + Tactical Microstructure Execution Gate (Live)
               </p>
             </div>
           </div>
@@ -134,15 +148,47 @@ export default function TopOpportunitiesModal({ isOpen, onClose }) {
               <span>{isScanning ? 'Scanning…' : 'Scan Live'}</span>
             </button>
 
+            {/* Push All to Telegram Button */}
+            <button
+              onClick={handlePushAllTelegram}
+              className="flex items-center gap-1.5 bg-green/15 hover:bg-green/25 border border-green/30 px-3 py-1.5 rounded-lg text-xs font-bold text-green transition-colors cursor-pointer"
+              title="Broadcast actionable Telegram alerts for all qualifying READY/STALK setups"
+            >
+              <span>📱</span>
+              <span>Push to Telegram</span>
+            </button>
+
             {/* Close Button */}
             <button
               onClick={onClose}
               className="text-muted hover:text-text p-1.5 rounded-lg hover:bg-elevated text-lg transition-colors cursor-pointer ml-1"
+              title="Close modal (or press ESC / click outside)"
             >
               ✕
             </button>
           </div>
         </div>
+
+        {/* Telegram Notification Banner */}
+        {tgNotification && (
+          <div
+            className={`px-6 py-2 text-xs font-semibold flex items-center justify-between transition-all ${
+              tgNotification.type === 'success'
+                ? 'bg-green/20 text-green border-b border-green/30'
+                : tgNotification.type === 'error'
+                ? 'bg-red/20 text-red border-b border-red/30'
+                : 'bg-amber/20 text-amber border-b border-amber/30'
+            }`}
+          >
+            <span>{tgNotification.text}</span>
+            <button
+              onClick={() => setTgNotification(null)}
+              className="text-[10px] opacity-75 hover:opacity-100 cursor-pointer"
+            >
+              ✕
+            </button>
+          </div>
+        )}
 
         {/* Quick Thematic Pill Selector */}
         <div className="flex items-center gap-1.5 px-6 py-2 border-b border-border/40 bg-panel/60 overflow-x-auto text-xs flex-shrink-0">
@@ -185,6 +231,12 @@ export default function TopOpportunitiesModal({ isOpen, onClose }) {
               Unable to load opportunities. Click Scan Live to try again.
             </div>
           )}
+        </div>
+
+        {/* Modal Footer Helper */}
+        <div className="px-6 py-2.5 border-t border-border/40 bg-panel/40 flex items-center justify-between text-[10px] text-muted font-ui">
+          <span>Click anywhere outside or press <kbd className="bg-elevated px-1.5 py-0.5 rounded border border-border font-mono">ESC</kbd> to return to dashboard.</span>
+          <span className="hidden sm:inline">Press <kbd className="bg-elevated px-1.5 py-0.5 rounded border border-border font-mono">Cmd/Ctrl + K</kbd> anytime for Command Palette.</span>
         </div>
       </div>
     </div>

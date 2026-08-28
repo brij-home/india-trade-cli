@@ -35,9 +35,11 @@ import ForensicCard       from '../Cards/ForensicCard'
 import PositionSizerCard  from '../Cards/PositionSizerCard'
 import FunnelCard         from '../Cards/FunnelCard'
 import MarketStructureCard from '../Cards/MarketStructureCard'
-import MultibaggerCard    from '../Cards/MultibaggerCard'
+import MultibaggerCard from '../Cards/MultibaggerCard'
 import PositionTrackerCard from '../Cards/PositionTrackerCard'
 import HighConvictionCard from '../Cards/HighConvictionCard'
+import BigMoveCard from '../Cards/BigMoveCard'
+
 
 export default function Message({ message }) {
   const { role, text, cardType, data } = message
@@ -102,6 +104,9 @@ export default function Message({ message }) {
     case 'conviction':
     case 'top10':
     case 'radar':              return <HighConvictionCard data={data} />
+    case 'big_move':
+    case 'bigmove':
+    case 'squeeze':            return <BigMoveCard data={data} />
     case 'drift':              return <DriftCard data={data} />
     case 'pairs':              return <PairsCard data={data} />
     case 'memory':             return <MemoryCard data={data} />
@@ -112,3 +117,4 @@ export default function Message({ message }) {
     default:                   return <MarkdownCard data={data} />
   }
 }
+

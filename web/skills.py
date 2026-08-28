@@ -2249,6 +2249,7 @@ class TopConvictionSkillRequest(BaseModel):
 
 
 @router.post("/top_conviction")
+@router.post("/high_conviction")
 async def skill_top_conviction(req: TopConvictionSkillRequest):
     """
     Scan universe and return Top N high-conviction trading opportunities across SMC, VPA, Minervini, and RRG.
@@ -2270,6 +2271,9 @@ async def skill_top_conviction(req: TopConvictionSkillRequest):
 
 
 @router.get("/universe_categories")
+@router.get("/taxonomy")
+@router.post("/universe_categories")
+@router.post("/taxonomy")
 async def skill_universe_categories():
     """
     Get all structured institutional equity sectors and thematic presets with counts and icons.
@@ -2281,6 +2285,94 @@ async def skill_universe_categories():
         return _ok({"categories": categories})
     except Exception as e:
         raise _err(str(e))
+
+
+
+
+# ── High-Probability Big Move & Squeeze Direction Skill ──────
+
+
+class BigMoveSkillRequest(BaseModel):
+    symbol: str
+    exchange: str = "NSE"
+
+
+@router.post("/big_move")
+async def skill_big_move(req: BigMoveSkillRequest):
+    """
+    Predict high-probability large move direction using TTM Squeeze, Options OI, and Volume Expansion.
+    Evaluated on real-time live market ticks.
+    """
+    try:
+        from analysis.big_move import predict_large_move
+
+        report = predict_large_move(
+            symbol=req.symbol.upper(),
+            exchange=req.exchange,
+        )
+        return _ok(report.to_dict())
+    except Exception as e:
+        raise _err(str(e))
+
+
+# ── Two-Tier Execution Gate & Live Alert Skill ───────────────
+
+
+class ExecutionGateSkillRequest(BaseModel):
+    symbol: str
+    exchange: str = "NSE"
+    notify_telegram: bool = False
+
+
+@router.post("/execution_gate")
+async def skill_execution_gate(req: ExecutionGateSkillRequest):
+    """
+    Evaluate strategic setup quality (Historical) vs tactical execution readiness (Real-Time Microstructure).
+    Optionally pushes instant Telegram alert if status is READY or STALK.
+    """
+    try:
+        from analysis.execution_gate import evaluate_execution_gate
+
+        report = evaluate_execution_gate(
+            symbol=req.symbol.upper(),
+            exchange=req.exchange,
+            notify_telegram=req.notify_telegram,
+        )
+        return _ok(report.to_dict())
+    except Exception as e:
+        raise _err(str(e))
+
+
+class ScanAlertSkillRequest(BaseModel):
+    universe: str = "auto_market_aware"
+    top_n: int = 5
+    exchange: str = "NSE"
+    notify_telegram: bool = True
+
+
+@router.post("/scan_and_alert")
+async def skill_scan_and_alert(req: ScanAlertSkillRequest):
+    """
+    Scan universe, evaluate two-tier execution readiness, and push Telegram notifications for READY / STALK candidates.
+    """
+    try:
+        from analysis.execution_gate import scan_and_alert_execution_candidates
+
+        candidates = scan_and_alert_execution_candidates(
+            universe=req.universe,
+            top_n=req.top_n,
+            exchange=req.exchange,
+            notify_telegram=req.notify_telegram,
+        )
+        return _ok({
+            "universe": req.universe,
+            "total_candidates": len(candidates),
+            "candidates": [c.to_dict() for c in candidates],
+        })
+    except Exception as e:
+        raise _err(str(e))
+
+
 
 
 

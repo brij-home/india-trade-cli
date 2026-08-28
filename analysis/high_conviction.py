@@ -72,6 +72,9 @@ class HighConvictionOpportunity:
     liquidity_tier: str = "TIER_1_ULTRA_LIQUID"  # "TIER_1_ULTRA_LIQUID" | "TIER_2_ACTIVE_LIQUID" | "TIER_3_MIDCAP"
     est_turnover_cr: float = 100.0  # Estimated daily turnover in Crores
     sector_icon: str = "🏢"
+    data_source: str = "HISTORICAL_EOD"  # "LIVE_TICK" | "HISTORICAL_EOD"
+    as_of_date: str = ""
+    dataset_info: str = "NSE Daily OHLCV (250 Bars Lookback)"
     smc_signals: list[str] = field(default_factory=list)
     tags: list[str] = field(default_factory=list)
 
@@ -89,6 +92,8 @@ class HighConvictionScanResult:
     opportunities: list[HighConvictionOpportunity]
     summary: str
     top_down_rationale: str = ""
+    data_source: str = "HISTORICAL_EOD"  # "LIVE_TICK" | "HISTORICAL_EOD"
+    dataset_timeline: str = "NSE Daily OHLCV (250 Bars Lookback · EOD Daily Bars)"
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -100,7 +105,10 @@ class HighConvictionScanResult:
             "opportunities": [o.to_dict() for o in self.opportunities],
             "summary": self.summary,
             "top_down_rationale": self.top_down_rationale,
+            "data_source": self.data_source,
+            "dataset_timeline": self.dataset_timeline,
         }
+
 
 
 def _evaluate_single_stock(
@@ -300,6 +308,18 @@ def _evaluate_single_stock(
 
         catalyst_summary = " · ".join(catalyst_parts) if catalyst_parts else "Multi-factor quantitative alignment."
 
+        # Determine data provenance & timeline
+        now_dt = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=5, minutes=30)))
+
+        if data_override is not None and not data_override.empty:
+            idx = data_override.index[-1]
+            as_of_date = idx.strftime("%d %b %Y") if hasattr(idx, "strftime") else str(idx)
+        else:
+            as_of_date = now_dt.strftime("%d %b %Y")
+
+        data_source = "HISTORICAL_EOD"
+        dataset_info = f"NSE Daily OHLCV (250 Bars Lookback · As of {as_of_date})"
+
         return HighConvictionOpportunity(
             rank=0,  # assigned during sorting
             symbol=symbol,
@@ -326,6 +346,9 @@ def _evaluate_single_stock(
             liquidity_tier=liq_tier,
             est_turnover_cr=est_turnover_cr,
             sector_icon=sec_icon,
+            data_source=data_source,
+            as_of_date=as_of_date,
+            dataset_info=dataset_info,
             smc_signals=smc_signals,
             tags=tags[:4],
         )
@@ -353,16 +376,20 @@ def scan_high_conviction_opportunities(
         if cached and isinstance(cached, dict):
             # Reconstruct result from cached dict
             opps = [HighConvictionOpportunity(**o) for o in cached.get("opportunities", []) if isinstance(o, dict)]
-            return HighConvictionScanResult(
-                timestamp=cached.get("timestamp", now_ist.strftime("%d %b %Y, %I:%M %p IST")),
-                scanned_universe=cached.get("scanned_universe", str(universe)),
-                total_scanned=cached.get("total_scanned", len(opps)),
-                market_posture=cached.get("market_posture", "BULLISH_EXPANSION"),
-                leading_sectors=cached.get("leading_sectors", []),
-                opportunities=opps,
-                summary=cached.get("summary", ""),
-                top_down_rationale=cached.get("top_down_rationale", ""),
-            )
+            if len(opps) > 0:
+                return HighConvictionScanResult(
+                    timestamp=cached.get("timestamp", now_ist.strftime("%d %b %Y, %I:%M %p IST")),
+                    scanned_universe=cached.get("scanned_universe", str(universe)),
+                    total_scanned=cached.get("total_scanned", len(opps)),
+                    market_posture=cached.get("market_posture", "BULLISH_EXPANSION"),
+                    leading_sectors=cached.get("leading_sectors", []),
+                    opportunities=opps,
+                    summary=cached.get("summary", ""),
+                    top_down_rationale=cached.get("top_down_rationale", ""),
+                    data_source=cached.get("data_source", "HISTORICAL_EOD"),
+                    dataset_timeline=cached.get("dataset_timeline", f"Dataset: 250D Daily Historical Bars (As of {now_ist.strftime('%d %b %Y')} Close)"),
+                )
+
 
     # Resolve dynamic top-down or sector universe
     if isinstance(universe, list):
@@ -418,6 +445,8 @@ def scan_high_conviction_opportunities(
         f"{avg_conv}/100."
     )
 
+    dataset_timeline = f"Dataset: 250D Daily Historical Bars (As of {now_ist.strftime('%d %b %Y')} Close)"
+
     result = HighConvictionScanResult(
         timestamp=now_ist.strftime("%d %b %Y, %I:%M %p IST"),
         scanned_universe=universe if isinstance(universe, str) else "custom_watchlist",
@@ -427,9 +456,13 @@ def scan_high_conviction_opportunities(
         opportunities=top_opportunities,
         summary=summary,
         top_down_rationale=resolution_reason,
+        data_source="HISTORICAL_EOD",
+        dataset_timeline=dataset_timeline,
     )
 
-    if use_cache:
+    if use_cache and len(top_opportunities) > 0:
         cache_set(cache_key, result.to_dict(), namespace="high_conviction")
 
     return result
+
+
