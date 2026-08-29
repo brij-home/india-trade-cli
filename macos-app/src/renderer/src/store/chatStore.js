@@ -45,6 +45,30 @@ function deriveTitle(text) {
   return text.length > 30 ? text.slice(0, 30) + '...' : text
 }
 
+/**
+ * Helper to derive the currently active stock/ticker context from session messages.
+ */
+export function getActiveSymbol(messages) {
+  if (!messages || !Array.isArray(messages) || messages.length === 0) return null
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i]
+    if (m?.data?.symbol) return String(m.data.symbol).toUpperCase()
+    if (m?.data?.stock) return String(m.data.stock).toUpperCase()
+    if (m?.role === 'user' && typeof m.text === 'string') {
+      const match = m.text.match(
+        /(?:analyze|analyse|quote|q|forensic|fa|smc|structure|multibagger|vcp|lifecycle|trail|oi|payoff|backtest|bt|deals|size|da|deep-analyze|iv-smile|gex)\s+([A-Za-z0-9_&]+)/i
+      )
+      if (match && match[1]) {
+        const sym = match[1].toUpperCase()
+        if (!['NIFTY_50', 'NIFTY50', 'FNO', 'ALL', 'THEMATIC', 'INDEX'].includes(sym)) {
+          return sym
+        }
+      }
+    }
+  }
+  return null
+}
+
 // Create the default initial session
 const defaultId = uuid()
 

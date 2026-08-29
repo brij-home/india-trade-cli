@@ -52,6 +52,16 @@ console = Console(legacy_windows=False)
 # ── Sector & Watchlist Presets ───────────────────────────────────────────────
 
 WATCHLIST_PRESETS: dict[str, list[str]] = {
+    "nifty_50": [
+        "RELIANCE", "TCS", "HDFCBANK", "INFY", "ICICIBANK", "SBIN", "BHARTIARTL",
+        "ITC", "LT", "KOTAKBANK", "AXISBANK", "TATAMOTORS", "MARUTI", "SUNPHARMA",
+        "BAJFINANCE", "TITAN", "HINDUNILVR", "NTPC", "ONGC", "POWERGRID",
+        "TATASTEEL", "COALINDIA", "ASIANPAINT", "M&M", "ADANIENT", "ADANIPORTS",
+        "TECHM", "HCLTECH", "WIPRO", "ULTRACEMCO", "JSWSTEEL", "GRASIM",
+        "BAJAJFINSV", "NESTLEIND", "TRENT", "BEL", "CIPLA", "HEROMOTOCO",
+        "DRREDDY", "APOLLOHOSP", "BPCL", "SHRIRAMFIN", "EICHERMOT", "HINDALCO",
+        "TATACONSUM", "DIVISLAB", "SBILIFE", "HDFCLIFE", "BRITANNIA", "INDUSINDBK"
+    ],
     "nifty50": [
         "RELIANCE", "TCS", "HDFCBANK", "INFY", "ICICIBANK", "SBIN", "BHARTIARTL",
         "ITC", "LT", "KOTAKBANK", "AXISBANK", "TATAMOTORS", "MARUTI", "SUNPHARMA",
@@ -77,6 +87,14 @@ WATCHLIST_PRESETS: dict[str, list[str]] = {
     "nifty_metal": [
         "TATASTEEL", "JSWSTEEL", "HINDALCO", "JINDALSTEL", "VEDL", "NMDC",
         "SAIL", "NATIONALUM", "APLAPOLLO", "HINDCOPPER"
+    ],
+    "nifty_pharma": [
+        "SUNPHARMA", "CIPLA", "DRREDDY", "DIVISLAB", "LUPIN", "AUROPHARMA",
+        "TORNTPHARM", "ALKEM", "BIOCON", "GLENMARK"
+    ],
+    "nifty_fmcg": [
+        "ITC", "HINDUNILVR", "NESTLEIND", "BRITANNIA", "TATACONSUM", "DABUR",
+        "GODREJCP", "MARICO", "COLPAL", "VBL"
     ],
 }
 
@@ -483,18 +501,31 @@ class SmartFunnel:
         """
         t0 = time.time()
 
-        sym_list: list[str] = []
         if isinstance(symbols, str):
-            clean_str = symbols.strip().lower()
+            clean_str = symbols.strip().lower().replace("-", "_").replace(" ", "_")
             if clean_str in WATCHLIST_PRESETS:
                 sym_list = list(WATCHLIST_PRESETS[clean_str])
+            elif clean_str in ("nifty", "nifty_50", "nifty50"):
+                sym_list = list(WATCHLIST_PRESETS["nifty_50"])
+            elif clean_str in ("nifty_it", "niftyit", "it"):
+                sym_list = list(WATCHLIST_PRESETS["nifty_it"])
+            elif clean_str in ("nifty_bank", "niftybank", "bank"):
+                sym_list = list(WATCHLIST_PRESETS["nifty_bank"])
+            elif clean_str in ("nifty_auto", "niftyauto", "auto"):
+                sym_list = list(WATCHLIST_PRESETS["nifty_auto"])
+            elif clean_str in ("nifty_metal", "niftymetal", "metal"):
+                sym_list = list(WATCHLIST_PRESETS["nifty_metal"])
+            elif clean_str in ("nifty_pharma", "niftypharma", "pharma"):
+                sym_list = list(WATCHLIST_PRESETS["nifty_pharma"])
+            elif clean_str in ("nifty_fmcg", "niftyfmcg", "fmcg"):
+                sym_list = list(WATCHLIST_PRESETS["nifty_fmcg"])
             else:
                 sym_list = [s.strip().upper() for s in symbols.split(",") if s.strip()]
         else:
             sym_list = [s.strip().upper() for s in symbols if s.strip()]
 
         if not sym_list:
-            sym_list = WATCHLIST_PRESETS["nifty_it"]
+            sym_list = list(WATCHLIST_PRESETS["nifty_50"])
 
         if self.verbose:
             console.print(
@@ -542,48 +573,49 @@ class SmartFunnel:
         if deep_p and fast_p and candidate_symbols:
             if self.verbose:
                 console.print(
-                    f"\n[bold green]⚔️ STAGE 2 & 3: Multi-Agent Debate on Top {len(candidate_symbols)} Candidates[/bold green] "
+                    f"\n[bold green]⚔️ STAGE 2 & 3: Parallel Multi-Agent Debate on Top {len(candidate_symbols)} Candidates[/bold green] "
                     f"([cyan]{', '.join(candidate_symbols)}[/cyan])\n"
                 )
 
             from agent.multi_agent import MultiAgentAnalyzer
-            from agent.scratchpad import get_scratchpad
 
-            analyzer = MultiAgentAnalyzer(
-                registry=reg,
-                llm_provider=deep_p,
-                fast_llm_provider=fast_p,
-                parallel=True,
-                verbose=self.verbose,
-                risk_debate=False,
-            )
-
-            for i, sym in enumerate(candidate_symbols, 1):
-                if self.verbose:
-                    console.print(f"\n[bold yellow]── [{i}/{len(candidate_symbols)}] Deep Adversarial Debate: {sym} ──[/bold yellow]")
-                get_scratchpad(symbol=sym)
+            def _analyze_candidate(sym: str) -> TradePlanSummary:
                 try:
-                    synthesis_text = analyzer.analyze(sym, exchange)
-                    plan = self._parse_synthesis_output(sym, synthesis_text)
-                    trade_plans.append(plan)
-                except Exception as e:
-                    console.print(f"[red]Error analyzing {sym}: {e}[/red]")
-                    trade_plans.append(
-                        TradePlanSummary(
-                            symbol=sym,
-                            verdict="HOLD",
-                            confidence=0,
-                            winner="N/A",
-                            strategy="Execution error",
-                            entry="—",
-                            stop_loss="—",
-                            target="—",
-                            risk_reward="—",
-                            position_size="0 shares",
-                            rationale=[f"Analysis failed: {e}"],
-                            risks=["API error"],
-                        )
+                    analyzer = MultiAgentAnalyzer(
+                        registry=reg,
+                        llm_provider=deep_p,
+                        fast_llm_provider=fast_p,
+                        parallel=True,
+                        verbose=False,
+                        risk_debate=False,
                     )
+                    synthesis_text = analyzer.analyze(sym, exchange, skip_debate=True)
+                    return self._parse_synthesis_output(sym, synthesis_text)
+                except Exception as e:
+                    if self.verbose:
+                        console.print(f"[red]Error analyzing {sym}: {e}[/red]")
+                    return TradePlanSummary(
+                        symbol=sym,
+                        verdict="HOLD",
+                        confidence=0,
+                        winner="N/A",
+                        strategy="Execution error",
+                        entry="—",
+                        stop_loss="—",
+                        target="—",
+                        risk_reward="—",
+                        position_size="0 shares",
+                        rationale=[f"Analysis failed: {e}"],
+                        risks=["API/Timeout error"],
+                    )
+
+            with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(candidate_symbols), 3)) as executor:
+                future_to_sym = {executor.submit(_analyze_candidate, sym): sym for sym in candidate_symbols}
+                for f in concurrent.futures.as_completed(future_to_sym):
+                    trade_plans.append(f.result())
+
+            # Sort trade_plans to match candidate_symbols ranking
+            trade_plans.sort(key=lambda p: candidate_symbols.index(p.symbol) if p.symbol in candidate_symbols else 999)
 
         elapsed = round(time.time() - t0, 2)
         return SmartFunnelResult(

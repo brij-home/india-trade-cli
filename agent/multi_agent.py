@@ -866,14 +866,18 @@ class NewsMacroAnalyst(BaseAnalyst):
                 console.print(
                     f"  [dim cyan]Analyzing news sentiment for {symbol} via LLM...[/dim cyan]"
                 )
-            response = self._llm.chat(
-                messages=[{"role": "user", "content": prompt}],
-                stream=False,
-                enable_tools=False,
-            )
-            return self._parse_sentiment_response(response)
+                with ThreadPoolExecutor(max_workers=1) as pool:
+                    fut = pool.submit(
+                        self._llm.chat,
+                        messages=[{"role": "user", "content": prompt}],
+                        stream=False,
+                        enable_tools=False,
+                    )
+                    response = fut.result(timeout=10.0)
+                return self._parse_sentiment_response(response)
+            return self._keyword_sentiment([]) + ([],)
         except Exception as e:
-            # LLM failed — fall back to keyword sentiment
+            # LLM failed or timed out — fall back to keyword sentiment
             console.print(
                 f"  [dim yellow]LLM sentiment failed: {e} — using keyword fallback[/dim yellow]"
             )
@@ -1306,11 +1310,9 @@ class MultiAgentAnalyzer:
             RiskAnalyst(registry),
         ]
 
-    def analyze(self, symbol: str, exchange: str = "NSE") -> str:
+    def analyze(self, symbol: str, exchange: str = "NSE", skip_debate: bool = False) -> str:
         """
-        Run the full multi-agent pipeline and return the final response text.
-
-        Returns the synthesis LLM output (already printed to terminal).
+        Run the multi-agent pipeline and return the final synthesis text.
         """
         symbol = symbol.upper()
         exchange = exchange.upper()
@@ -1395,8 +1397,8 @@ class MultiAgentAnalyzer:
 
         t1 = time.time()
 
-        if ctx.should_skip_debate:
-            # Fast-path: analysts agree strongly — skip 5 LLM debate calls
+        if skip_debate or ctx.should_skip_debate:
+            # Fast-path: skip 5 LLM debate calls for high throughput screening
             if self.verbose:
                 console.print()
                 console.print(
@@ -1415,7 +1417,7 @@ class MultiAgentAnalyzer:
 
         debate_time = time.time() - t1
 
-        if self.verbose and not ctx.should_skip_debate:
+        if self.verbose and not (skip_debate or ctx.should_skip_debate):
             self._print_debate(debate, debate_time)
 
         # ── Phase 2.5: Risk Debate ───────────────────────────
@@ -1753,17 +1755,26 @@ class MultiAgentAnalyzer:
         self,
         prompt: str,
         fallback_text: str = "",
-        timeout: float = 18.0,
+        timeout: float = 14.0,
         llm: Any = None,
     ) -> str:
-        """Execute an LLM chat call with exception protection and fallback."""
+        """Execute an LLM chat call with exception protection, hard thread timeout, and fallback."""
         target_llm = llm or self.llm
-        try:
-            res = target_llm.chat(
+        if target_llm is None:
+            return fallback_text
+
+        def _do_chat():
+            return target_llm.chat(
                 messages=[{"role": "user", "content": prompt}],
                 stream=False,
                 enable_tools=False,
             )
+
+        try:
+            with ThreadPoolExecutor(max_workers=1) as pool:
+                fut = pool.submit(_do_chat)
+                res = fut.result(timeout=timeout)
+
             res_str = str(res or "").strip()
             if (
                 res_str
@@ -2299,7 +2310,7 @@ class MultiAgentAnalyzer:
             console.print("\nSynthesizing final verdict...")
 
         synth_fallback = self._build_deterministic_synthesis(symbol, exchange, reports, debate.winner)
-        synthesis = self._safe_chat(synthesis_prompt, synth_fallback, timeout=40.0)
+        synthesis = self._safe_chat(synthesis_prompt, synth_fallback, timeout=12.0)
 
         if self.progress_callback:
             self.progress_callback({"type": "synthesis_text", "text": synthesis})

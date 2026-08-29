@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useChatStore } from '../../store/chatStore'
+import { useChatStore, getActiveSymbol } from '../../store/chatStore'
 import { useAPI } from '../../hooks/useAPI'
 import BrokerPanel from './BrokerPanel'
 
@@ -36,6 +36,9 @@ export default function Sidebar() {
   const showDashboard = useChatStore((s) => s.showDashboard)
   const setShowDashboard = useChatStore((s) => s.setShowDashboard)
   const sendDraft = useChatStore((s) => s.sendDraft)
+  const setDraft = useChatStore((s) => s.setDraft)
+  const messages = useChatStore((s) => s.messages)
+  const activeSymbol = getActiveSymbol(messages)
   const [showBrokerPanel, setShowBrokerPanel] = useState(false)
   const [hoveredSession, setHoveredSession] = useState(null)
 
@@ -111,9 +114,16 @@ export default function Sidebar() {
         </div>
       </div>
 
-      {/* Quick Trading Tools (1-Click Instant Execution) */}
+      {/* Quick Trading Tools (1-Click Instant Execution / Contextual Actions) */}
       <div className="px-3 py-2 border-t border-border/50 bg-panel/30">
-        <p className="text-[10px] uppercase font-ui tracking-wider text-muted mb-1.5 px-1">Institutional Tools</p>
+        <div className="flex items-center justify-between mb-1.5 px-1">
+          <p className="text-[10px] uppercase font-ui tracking-wider text-muted font-semibold">Institutional Tools</p>
+          {activeSymbol && (
+            <span className="text-[9px] font-mono text-amber bg-amber/10 border border-amber/30 px-1 rounded font-bold" title="Active Stock Context">
+              {activeSymbol}
+            </span>
+          )}
+        </div>
         <div className="grid grid-cols-2 gap-1 text-[11px] font-ui">
           <button
             onClick={() => sendDraft('brief')}
@@ -130,30 +140,48 @@ export default function Sidebar() {
             <span>🌐</span> Breadth
           </button>
           <button
-            onClick={() => sendDraft('funnel nifty_50')}
+            onClick={() => {
+              if (activeSymbol) {
+                sendDraft(`funnel ${activeSymbol}`)
+              } else {
+                setDraft('funnel ')
+              }
+            }}
             className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-muted hover:text-text hover:bg-elevated text-left transition-colors cursor-pointer"
-            title="Smart Funnel 4-Stage Screener"
+            title={activeSymbol ? `Screen ${activeSymbol} in Smart Funnel` : "Smart Funnel Multi-Agent Screening"}
           >
             <span>🎯</span> Funnel
           </button>
           <button
-            onClick={() => sendDraft('rrg')}
+            onClick={() => {
+              if (activeSymbol) {
+                sendDraft(`rrg ${activeSymbol}`)
+              } else {
+                sendDraft('rrg')
+              }
+            }}
             className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-muted hover:text-text hover:bg-elevated text-left transition-colors cursor-pointer"
-            title="Relative Rotation Graphs (RRG)"
+            title={activeSymbol ? `Check ${activeSymbol} Sector RRG Momentum` : "Relative Rotation Graphs (RRG Matrix)"}
           >
             <span>📈</span> RRG
           </button>
           <button
             onClick={() => sendDraft('flows')}
             className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-muted hover:text-text hover:bg-elevated text-left transition-colors cursor-pointer"
-            title="FII & DII Cash & Futures Flows"
+            title="FII & DII Cash & Futures Institutional Flows"
           >
             <span>🌊</span> Flows
           </button>
           <button
-            onClick={() => sendDraft('forensic RELIANCE')}
+            onClick={() => {
+              if (activeSymbol) {
+                sendDraft(`forensic ${activeSymbol}`)
+              } else {
+                setDraft('forensic ')
+              }
+            }}
             className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-muted hover:text-text hover:bg-elevated text-left transition-colors cursor-pointer"
-            title="Forensic Accounting Audit"
+            title={activeSymbol ? `Audit Balance Sheet & Forensics for ${activeSymbol}` : "Forensic Accounting Audit (Beneish & Altman)"}
           >
             <span>🛡️</span> Forensic
           </button>

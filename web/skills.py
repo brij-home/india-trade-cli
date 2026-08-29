@@ -2142,7 +2142,7 @@ async def skill_position_size(req: PositionSizeSkillRequest):
 class FunnelSkillRequest(BaseModel):
     symbols: list[str] | str = "nifty_50"
     exchange: str = "NSE"
-    top_n: int = 3
+    top_n: int = 2
 
 
 @router.post("/funnel")
@@ -2154,7 +2154,7 @@ async def skill_funnel(req: FunnelSkillRequest):
         from agent.smart_funnel import SmartFunnel
 
         funnel = SmartFunnel(verbose=False)
-        result = funnel.run(symbols=req.symbols, exchange=req.exchange, top_n=req.top_n)
+        result = await asyncio.to_thread(funnel.run, symbols=req.symbols, exchange=req.exchange, top_n=req.top_n)
         return _ok(result.as_dict())
     except Exception as e:
         raise _err(str(e))
@@ -2282,7 +2282,8 @@ async def skill_top_conviction(req: TopConvictionSkillRequest):
     try:
         from analysis.high_conviction import scan_high_conviction_opportunities
 
-        res = scan_high_conviction_opportunities(
+        res = await asyncio.to_thread(
+            scan_high_conviction_opportunities,
             universe=req.universe,
             exchange=req.exchange,
             top_n=req.top_n,

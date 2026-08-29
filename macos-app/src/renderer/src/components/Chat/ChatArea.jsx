@@ -1,46 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
-import { useChatStore } from '../../store/chatStore'
+import { useChatStore, getActiveSymbol } from '../../store/chatStore'
 import { useAPI } from '../../hooks/useAPI'
 import Message from './Message'
-
-const QUICK_PROMPTS = [
-  {
-    icon: '⚡',
-    title: 'Multi-Agent Stock Debate',
-    desc: '7 quant agents analyze technicals, fundamentals & trade plans.',
-    cmd: 'analyze RELIANCE',
-  },
-  {
-    icon: '🎯',
-    title: 'Options Strategy Payoff',
-    desc: 'Interactive multi-leg simulator with live Greeks & DTE sliders.',
-    cmd: 'payoff NIFTY',
-  },
-  {
-    icon: '🔍',
-    title: 'Sector Breadth & Scanner',
-    desc: 'Live NSE sector heatmap and unusual volume/OI breakouts.',
-    cmd: 'scan',
-  },
-  {
-    icon: '🌊',
-    title: 'FII / DII Institutional Flows',
-    desc: 'Daily institutional cash & derivative positioning breakdown.',
-    cmd: 'flows',
-  },
-  {
-    icon: '🌅',
-    title: 'Morning Market Brief',
-    desc: 'Pre-market snapshot, global cues, VIX posture & macro events.',
-    cmd: 'brief',
-  },
-  {
-    icon: '🧪',
-    title: 'Algorithmic Backtesting',
-    desc: 'Test RSI, EMA, and Bollinger Bands with equity progression curves.',
-    cmd: 'backtest RELIANCE rsi',
-  },
-]
 
 const DEFAULT_TICKERS = [
   { symbol: 'NIFTY', name: 'NIFTY 50', cmd: 'quote NIFTY', tag: 'INDEX', ltp: 0, change_pct: 0 },
@@ -64,6 +25,7 @@ export default function ChatArea() {
   const createSession = useChatStore((s) => s.createSession)
   const activeSessionId = useChatStore((s) => s.activeSessionId)
   const sessions = useChatStore((s) => s.sessions)
+  const activeSymbol = getActiveSymbol(messages)
   const bottomRef = useRef(null)
 
   const { call } = useAPI()
@@ -98,6 +60,45 @@ export default function ChatArea() {
   }, [messages])
 
   const isDashboardVisible = messages.length === 0 || showDashboard
+
+  const quickPrompts = [
+    {
+      icon: '⚡',
+      title: activeSymbol ? `Multi-Agent Debate (${activeSymbol})` : 'Multi-Agent Stock Debate',
+      desc: '7 quant agents analyze technicals, fundamentals & trade plans.',
+      cmd: activeSymbol ? `analyze ${activeSymbol}` : 'analyze RELIANCE',
+    },
+    {
+      icon: '🎯',
+      title: activeSymbol ? `Strategy Payoff (${activeSymbol})` : 'Options Strategy Payoff',
+      desc: 'Interactive multi-leg simulator with live Greeks & DTE sliders.',
+      cmd: activeSymbol ? `payoff ${activeSymbol}` : 'payoff NIFTY',
+    },
+    {
+      icon: '🔍',
+      title: 'Sector Breadth & Scanner',
+      desc: 'Live NSE sector heatmap and unusual volume/OI breakouts.',
+      cmd: 'scan',
+    },
+    {
+      icon: '🌊',
+      title: 'FII / DII Institutional Flows',
+      desc: 'Daily institutional cash & derivative positioning breakdown.',
+      cmd: 'flows',
+    },
+    {
+      icon: '🌅',
+      title: 'Morning Market Brief',
+      desc: 'Pre-market snapshot, global cues, VIX posture & macro events.',
+      cmd: 'brief',
+    },
+    {
+      icon: '🧪',
+      title: activeSymbol ? `Backtest Strategy (${activeSymbol})` : 'Algorithmic Backtesting',
+      desc: 'Test RSI, EMA, and Bollinger Bands with equity progression curves.',
+      cmd: activeSymbol ? `backtest ${activeSymbol} rsi` : 'backtest RELIANCE rsi',
+    },
+  ]
 
   return (
     <div className="flex-1 overflow-y-auto px-4 md:px-8 py-6 space-y-5 bg-surface text-text">
@@ -238,7 +239,7 @@ export default function ChatArea() {
 
           {/* Quick Action Grid (1-Click Instant Execution) */}
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 w-full text-left pt-2">
-            {QUICK_PROMPTS.map((item) => (
+            {quickPrompts.map((item) => (
               <button
                 key={item.title}
                 onClick={() => sendDraft(item.cmd)}

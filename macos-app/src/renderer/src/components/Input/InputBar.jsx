@@ -1,21 +1,25 @@
 import { useState, useRef, useEffect } from 'react'
-import { useChatStore, getBaseUrl } from '../../store/chatStore'
+import { useChatStore, getBaseUrl, getActiveSymbol } from '../../store/chatStore'
 import { useAPI } from '../../hooks/useAPI'
 
 // Maps typed commands → API endpoint + card type
-function parseCommand(input) {
+function parseCommand(input, contextSymbol = null) {
   const parts = input.trim().split(/\s+/)
   const cmd   = parts[0].toLowerCase()
   const args  = parts.slice(1)
 
   switch (cmd) {
-    case 'quote': case 'q':
-      if (!args[0]) return { error: 'Usage: quote SYMBOL' }
-      return { endpoint: '/skills/quote', body: { symbol: args[0].toUpperCase() }, cardType: 'quote' }
+    case 'quote': case 'q': {
+      const sym = args[0]?.toUpperCase() || contextSymbol
+      if (!sym) return { error: 'Please specify a stock symbol (e.g. quote INFY)' }
+      return { endpoint: '/skills/quote', body: { symbol: sym }, cardType: 'quote' }
+    }
 
-    case 'analyze': case 'analyse': case 'a':
-      if (!args[0]) return { error: 'Usage: analyze SYMBOL' }
-      return { stream: true, symbol: args[0].toUpperCase(), exchange: args[1]?.toUpperCase() ?? 'NSE' }
+    case 'analyze': case 'analyse': case 'a': {
+      const sym = args[0]?.toUpperCase() || contextSymbol
+      if (!sym) return { error: 'Please specify a stock symbol to analyze (e.g. analyze INFY)' }
+      return { stream: true, symbol: sym, exchange: args[1]?.toUpperCase() ?? 'NSE' }
+    }
 
     case 'morning-brief': case 'brief': case 'mb':
       return { endpoint: '/skills/morning_brief', body: {}, cardType: 'morning_brief' }
@@ -29,29 +33,33 @@ function parseCommand(input) {
     case 'positions': case 'pos':
       return { endpoint: '/skills/positions', body: {}, cardType: 'holdings' }
 
-    case 'backtest': case 'bt':
-      if (!args[0]) return { error: 'Usage: backtest SYMBOL [STRATEGY]  (e.g. backtest RELIANCE rsi)' }
+    case 'backtest': case 'bt': {
+      const sym = args[0]?.toUpperCase() || contextSymbol
+      if (!sym) return { error: 'Please specify a stock symbol for backtesting (e.g. backtest INFY rsi)' }
       return {
         endpoint: '/skills/backtest',
-        body: { symbol: args[0].toUpperCase(), strategy: args[1] || 'rsi' },
+        body: { symbol: sym, strategy: args[1] || 'rsi' },
         cardType: 'backtest',
       }
+    }
 
     case 'macro':
       return { endpoint: '/skills/macro', body: {}, cardType: 'markdown' }
 
     case 'earnings':
-      return { endpoint: '/skills/earnings', body: { symbols: args }, cardType: 'markdown' }
+      return { endpoint: '/skills/earnings', body: { symbols: args.length > 0 ? args : (contextSymbol ? [contextSymbol] : []) }, cardType: 'markdown' }
 
     // ── High-value additions ──────────────────────────────────
 
-    case 'deep-analyze': case 'deep-analyse': case 'da':
-      if (!args[0]) return { error: 'Usage: deep-analyze SYMBOL [EXCHANGE]' }
+    case 'deep-analyze': case 'deep-analyse': case 'da': {
+      const sym = args[0]?.toUpperCase() || contextSymbol
+      if (!sym) return { error: 'Please specify a stock symbol (e.g. deep-analyze INFY)' }
       return {
         endpoint: '/skills/deep_analyze',
-        body: { symbol: args[0].toUpperCase(), exchange: args[1]?.toUpperCase() ?? 'NSE' },
+        body: { symbol: sym, exchange: args[1]?.toUpperCase() ?? 'NSE' },
         cardType: 'markdown',
       }
+    }
 
     case 'funds': case 'fund':
       return { endpoint: '/skills/funds', body: {}, cardType: 'funds' }
@@ -83,13 +91,14 @@ function parseCommand(input) {
         cardType: 'markdown',
       }
 
-    case 'oi':
-      if (!args[0]) return { error: 'Usage: oi SYMBOL [EXCHANGE]' }
+    case 'oi': {
+      const sym = args[0]?.toUpperCase() || contextSymbol || 'NIFTY'
       return {
         endpoint: '/skills/oi_profile',
-        body: { symbol: args[0].toUpperCase(), exchange: args[1]?.toUpperCase() ?? 'NSE' },
+        body: { symbol: sym, exchange: args[1]?.toUpperCase() ?? 'NSE' },
         cardType: 'oi',
       }
+    }
 
     case 'patterns': case 'pat':
       return { endpoint: '/skills/patterns', body: {}, cardType: 'patterns' }
@@ -107,16 +116,16 @@ function parseCommand(input) {
     case 'deals': case 'bulk-deals':
       return {
         endpoint: '/skills/deals',
-        body: { symbol: args[0]?.toUpperCase() ?? null, days: 5 },
+        body: { symbol: args[0]?.toUpperCase() || contextSymbol || null, days: 5 },
         cardType: 'deals',
       }
 
     case 'iv-smile': case 'smile': case 'ivsmile': {
-      const sym = args[0]?.toUpperCase() ?? 'NIFTY'
+      const sym = args[0]?.toUpperCase() || contextSymbol || 'NIFTY'
       return { endpoint: '/skills/iv_smile', body: { symbol: sym, expiry: args[1] ?? null }, cardType: 'iv_smile' }
     }
     case 'gex': {
-      const sym = args[0]?.toUpperCase() ?? 'NIFTY'
+      const sym = args[0]?.toUpperCase() || contextSymbol || 'NIFTY'
       return { endpoint: '/skills/gex', body: { symbol: sym, expiry: args[1] ?? null }, cardType: 'gex' }
     }
     case 'delta-hedge': case 'dh': case 'deltahedge':
@@ -124,15 +133,12 @@ function parseCommand(input) {
     case 'risk-report': case 'risk': case 'var':
       return { endpoint: '/skills/risk_report', body: {}, cardType: 'risk_report' }
     case 'walkforward': case 'wf': case 'walk-forward': {
-      const sym = args[0]?.toUpperCase() ?? 'NIFTY'
+      const sym = args[0]?.toUpperCase() || contextSymbol || 'NIFTY'
       const strat = args[1] ?? 'rsi'
       return { endpoint: '/skills/walkforward', body: { symbol: sym, strategy: strat, window_months: 6 }, cardType: 'walkforward' }
     }
     case 'whatif': case 'what-if': case 'scenario': {
-      // whatif nifty -5   → market move
-      // whatif RELIANCE +10 → stock move
-      // whatif             → 3-scenario sweep
-      const sym = args[0]?.toUpperCase()
+      const sym = args[0]?.toUpperCase() || contextSymbol
       const chg = parseFloat(args[1])
       if (sym && (sym === 'NIFTY' || sym === 'MARKET') && !isNaN(chg)) {
         return { endpoint: '/skills/whatif', body: { scenario: 'market', nifty_change: chg }, cardType: 'whatif' }
@@ -142,13 +148,13 @@ function parseCommand(input) {
       return { endpoint: '/skills/whatif', body: { scenario: 'market' }, cardType: 'whatif' }
     }
     case 'strategy': case 'strat': {
-      const sym = args[0]?.toUpperCase() ?? 'NIFTY'
+      const sym = args[0]?.toUpperCase() || contextSymbol || 'NIFTY'
       const view = (args[1] ?? 'bullish').toUpperCase()
       const dte = parseInt(args[2]) || 30
       return { endpoint: '/skills/strategy', body: { symbol: sym, view, dte }, cardType: 'strategy' }
     }
     case 'payoff': case 'sim': case 'simulator': {
-      const sym = args[0]?.toUpperCase() ?? 'NIFTY'
+      const sym = args[0]?.toUpperCase() || contextSymbol || 'NIFTY'
       return { endpoint: '/skills/quote', body: { symbol: sym }, cardType: 'payoff' }
     }
     case 'drift':
@@ -169,39 +175,43 @@ function parseCommand(input) {
       return { endpoint: '/skills/provider', body: {}, cardType: 'provider' }
     }
     case 'rrg': case 'sector-rotation': case 'rotation': {
-      const sym = args[0]?.toUpperCase() ?? null
+      const sym = args[0]?.toUpperCase() || contextSymbol || null
       return { endpoint: '/skills/rrg', body: { symbol: sym }, cardType: 'rrg' }
     }
     case 'forensic': case 'forensics': case 'fa': {
-      const sym = (args[0] ?? 'RELIANCE').toUpperCase()
+      const sym = args[0]?.toUpperCase() || contextSymbol
+      if (!sym) return { error: 'Please specify a stock symbol for forensic audit (e.g. forensic INFY or forensic TCS)' }
       return { endpoint: '/skills/forensic', body: { symbol: sym }, cardType: 'forensic' }
     }
     case 'size': case 'position-size': case 'sizing': {
-      const sym = (args[0] ?? 'NIFTY').toUpperCase()
-      const entry = parseFloat(args[1]) || 24000
+      const sym = (args[0] || contextSymbol || 'NIFTY').toUpperCase()
+      const entry = parseFloat(args[1]) || (sym === 'NIFTY' ? 24000 : 2000)
       const sl = parseFloat(args[2]) || null
       return { endpoint: '/skills/position_size', body: { symbol: sym, entry_price: entry, stop_loss: sl }, cardType: 'size' }
     }
     case 'funnel': case 'smart-funnel': case 'smartfunnel': {
-      const syms = args[0] || 'nifty_50'
-      return { endpoint: '/skills/funnel', body: { symbols: syms, top_n: 3 }, cardType: 'funnel' }
+      const syms = args[0] || (contextSymbol ? contextSymbol : 'nifty_50')
+      return { endpoint: '/skills/funnel', body: { symbols: syms, top_n: 2 }, cardType: 'funnel' }
     }
     case 'structure': case 'market-structure': case 'smc': {
-      const sym = (args[0] ?? 'RELIANCE').toUpperCase()
+      const sym = args[0]?.toUpperCase() || contextSymbol
+      if (!sym) return { error: 'Please specify a stock symbol for SMC analysis (e.g. structure INFY)' }
       return { endpoint: '/skills/market_structure', body: { symbol: sym }, cardType: 'structure' }
     }
     case 'multibagger': case 'vcp': case 'stage2': {
-      const sym = (args[0] ?? 'TRENT').toUpperCase()
+      const sym = args[0]?.toUpperCase() || contextSymbol
+      if (!sym) return { error: 'Please specify a stock symbol for Minervini/Weinstein Stage 2 scan (e.g. multibagger TRENT)' }
       return { endpoint: '/skills/multibagger', body: { symbol: sym }, cardType: 'multibagger' }
     }
     case 'lifecycle': case 'trade-lifecycle': case 'trail': {
-      const sym = (args[0] ?? 'RELIANCE').toUpperCase()
+      const sym = args[0]?.toUpperCase() || contextSymbol
+      if (!sym) return { error: 'Please specify a stock symbol for lifecycle tracking (e.g. lifecycle INFY 1800 1740)' }
       const entry = parseFloat(args[1]) || 2400
       const sl = parseFloat(args[2]) || (entry * 0.97)
       return { endpoint: '/skills/lifecycle', body: { symbol: sym, entry_price: entry, initial_stop_loss: sl }, cardType: 'lifecycle' }
     }
     case 'vpa': case 'volume-profile': {
-      const sym = (args[0] ?? 'NIFTY').toUpperCase()
+      const sym = (args[0] || contextSymbol || 'NIFTY').toUpperCase()
       return { endpoint: '/skills/volume_profile', body: { symbol: sym }, cardType: 'markdown' }
     }
     case 'top10': case 'top-10': case 'conviction': case 'radar': {
@@ -210,14 +220,13 @@ function parseCommand(input) {
       return { endpoint: '/skills/top_conviction', body: { universe: u, top_n: 10, refresh }, cardType: 'top_conviction' }
     }
     case 'bigmove': case 'big_move': case 'big-move': case 'squeeze': {
-      const sym = (args[0] ?? 'NIFTY').toUpperCase()
+      const sym = (args[0] || contextSymbol || 'NIFTY').toUpperCase()
       return { endpoint: '/skills/big_move', body: { symbol: sym }, cardType: 'big_move' }
     }
 
     default:
       // Fall through to AI chat — session_id injected in submit()
       return { endpoint: '/skills/chat', body: { message: input }, cardType: 'markdown' }
-
   }
 }
 
@@ -345,6 +354,9 @@ export default function InputBar() {
     }
   }
 
+  const messages = useChatStore((s) => s.messages)
+  const activeSymbol = getActiveSymbol(messages)
+
   async function submit(customText = null) {
     const text = (customText != null ? customText : value).trim()
     if (!text || !ready) return
@@ -377,7 +389,8 @@ export default function InputBar() {
     setValue('')
     addUserMessage(text)
 
-    const parsed = parseCommand(text)
+    const currentActive = getActiveSymbol(useChatStore.getState().messages)
+    const parsed = parseCommand(text, currentActive)
 
     if (parsed.error) {
       addError(parsed.error)
@@ -416,7 +429,21 @@ export default function InputBar() {
     ? 'Starting API…'
     : isStreaming
     ? 'Type to add context for synthesis…'
-    : 'analyze INFY · gex NIFTY · strategy NIFTY bullish · whatif nifty -5 · …'
+    : activeSymbol
+    ? `Context: ${activeSymbol} · Type 'forensic', 'structure', 'multibagger', 'oi', 'payoff' or another ticker…`
+    : 'analyze INFY · forensic TCS · scan · flows · brief · funnel nifty_50 · …'
+
+  const quickCommands = activeSymbol
+    ? [
+        `analyze ${activeSymbol}`,
+        `forensic ${activeSymbol}`,
+        `structure ${activeSymbol}`,
+        `multibagger ${activeSymbol}`,
+        'flows',
+        'scan',
+        'brief',
+      ]
+    : ['analyze RELIANCE', 'radar', 'flows', 'scan', 'brief', 'funnel nifty_50']
 
   return (
     <div className="flex-shrink-0 border-t border-border bg-panel px-4 py-3 shadow-lg">
@@ -467,8 +494,10 @@ export default function InputBar() {
       </div>
       <div className="flex items-center justify-between mt-2 px-1 text-[11px] font-ui text-muted">
         <div className="flex items-center gap-1.5 overflow-x-auto truncate">
-          <span className="text-[10px] uppercase tracking-wider text-muted/70 font-semibold">Try:</span>
-          {['analyze RELIANCE', 'oi NIFTY', 'payoff NIFTY', 'scan', 'brief', 'flows'].map((cmd) => (
+          <span className="text-[10px] uppercase tracking-wider text-muted/70 font-semibold">
+            {activeSymbol ? `Active (${activeSymbol}):` : 'Try:'}
+          </span>
+          {quickCommands.map((cmd) => (
             <button
               key={cmd}
               onClick={() => setValue(cmd)}
