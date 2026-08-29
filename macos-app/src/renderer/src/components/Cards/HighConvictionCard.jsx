@@ -45,13 +45,17 @@ export default function HighConvictionCard({ data, onOpenOrderTicket }) {
     }
   }
 
-  const readyCount = opportunities.filter((o) => (o.eligibility_status || 'READY') === 'READY').length
-  const stalkCount = opportunities.filter((o) => o.eligibility_status === 'STALK').length
+  const readyCount = opportunities.filter(
+    (o) => (o.eligibility_status || (o.conviction_score >= 70 ? 'READY' : 'STALK')) === 'READY'
+  ).length
+  const stalkCount = opportunities.filter(
+    (o) => (o.eligibility_status || (o.conviction_score >= 70 ? 'READY' : 'STALK')) === 'STALK'
+  ).length
 
   // Filter logic
   const filteredOpps = opportunities.filter((opp) => {
     if (filter === 'ALL') return true
-    const status = opp.eligibility_status || 'READY'
+    const status = opp.eligibility_status || (opp.conviction_score >= 70 ? 'READY' : 'STALK')
     if (filter === 'READY') return status === 'READY'
     if (filter === 'STALK') return status === 'STALK'
     if (filter === 'STAND_DOWN') return status === 'STAND_DOWN'
@@ -186,11 +190,14 @@ export default function HighConvictionCard({ data, onOpenOrderTicket }) {
             const liqBadge = LIQUIDITY_TIER_BADGES[opp.liquidity_tier] || LIQUIDITY_TIER_BADGES.TIER_2_ACTIVE_LIQUID
             const tgState = telegramStatus[opp.symbol]
 
-            // Determine execution readiness badge
-            const isReady = opp.rvol_20d >= 1.5 || (opp.smc_signals && opp.smc_signals.some((s) => s.includes('BOS')))
-            const readinessBadge = isReady
-              ? { label: '🟢 READY', color: 'bg-green/15 text-green border-green/30' }
-              : { label: '🟡 STALK', color: 'bg-amber/15 text-amber border-amber/30' }
+            // Determine canonical execution readiness badge from eligibility status
+            const status = opp.eligibility_status || (opp.conviction_score >= 70 ? 'READY' : 'STALK')
+            const readinessBadge =
+              status === 'READY'
+                ? { label: '🟢 READY', color: 'bg-green/15 text-green border-green/30' }
+                : status === 'STALK'
+                ? { label: '🟡 STALK', color: 'bg-amber/15 text-amber border-amber/30' }
+                : { label: '⚪ STAND DOWN', color: 'bg-panel text-muted border-border/40' }
 
             return (
               <div
