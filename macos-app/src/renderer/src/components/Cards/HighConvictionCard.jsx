@@ -45,14 +45,22 @@ export default function HighConvictionCard({ data, onOpenOrderTicket }) {
     }
   }
 
+  const readyCount = opportunities.filter((o) => (o.eligibility_status || 'READY') === 'READY').length
+  const stalkCount = opportunities.filter((o) => o.eligibility_status === 'STALK').length
+
   // Filter logic
   const filteredOpps = opportunities.filter((opp) => {
     if (filter === 'ALL') return true
-    if (filter === 'BREAKOUT' && (opp.setup_type.includes('BREAKOUT') || opp.setup_type.includes('STAGE_2'))) return true
-    if (filter === 'VCP' && opp.setup_type.includes('VCP')) return true
-    if (filter === 'PULLBACK' && opp.setup_type.includes('PULLBACK')) return true
-    if (filter === 'BOTTOM_FISHING' && opp.setup_type.includes('BOTTOM_FISHING')) return true
-    return true
+    const status = opp.eligibility_status || 'READY'
+    if (filter === 'READY') return status === 'READY'
+    if (filter === 'STALK') return status === 'STALK'
+    if (filter === 'STAND_DOWN') return status === 'STAND_DOWN'
+    const setup = (opp.setup_type || '').toUpperCase()
+    if (filter === 'BREAKOUT') return setup.includes('BREAKOUT') || setup.includes('STAGE_2')
+    if (filter === 'VCP') return setup.includes('VCP')
+    if (filter === 'PULLBACK') return setup.includes('PULLBACK')
+    if (filter === 'BOTTOM_FISHING') return setup.includes('BOTTOM_FISHING')
+    return false
   })
 
   return (
@@ -143,9 +151,11 @@ export default function HighConvictionCard({ data, onOpenOrderTicket }) {
       <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs font-ui">
         {[
           { id: 'ALL', label: `All (${opportunities.length})` },
+          { id: 'READY', label: `🟢 Ready (${readyCount})`, activeClass: 'bg-green text-black font-bold' },
+          { id: 'STALK', label: `🟡 Stalking (${stalkCount})`, activeClass: 'bg-amber text-black font-bold' },
           { id: 'BREAKOUT', label: '🚀 Breakouts' },
-          { id: 'VCP', label: '⚡ VCP Contraction' },
-          { id: 'PULLBACK', label: '🎯 Demand Pullback' },
+          { id: 'VCP', label: '⚡ VCP' },
+          { id: 'PULLBACK', label: '🎯 Pullback' },
           { id: 'BOTTOM_FISHING', label: '🎣 Bottom Fishing' },
         ].map((tab) => (
           <button
@@ -153,7 +163,7 @@ export default function HighConvictionCard({ data, onOpenOrderTicket }) {
             onClick={() => setFilter(tab.id)}
             className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors cursor-pointer flex-shrink-0 ${
               filter === tab.id
-                ? 'bg-amber text-black font-bold'
+                ? (tab.activeClass || 'bg-amber text-black font-bold')
                 : 'bg-panel hover:bg-elevated text-muted hover:text-text border border-border/40'
             }`}
           >

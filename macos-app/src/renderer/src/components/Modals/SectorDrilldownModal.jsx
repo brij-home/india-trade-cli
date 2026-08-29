@@ -95,10 +95,8 @@ export default function SectorDrilldownModal({ isOpen, sector, onClose }) {
   // Filter stocks by eligibility
   const filteredOpps = opportunities.filter((opp) => {
     if (filter === 'ALL') return true
-    if (filter === 'READY' && opp.eligibility_status === 'READY') return true
-    if (filter === 'STALK' && opp.eligibility_status === 'STALK') return true
-    if (filter === 'STAND_DOWN' && opp.eligibility_status === 'STAND_DOWN') return true
-    return true
+    const status = opp.eligibility_status || 'READY'
+    return status === filter
   })
 
   const readyCount = breadth.ready_count ?? opportunities.filter((o) => o.eligibility_status === 'READY').length

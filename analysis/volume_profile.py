@@ -93,13 +93,21 @@ def compute_volume_profile(df: pd.DataFrame, num_bins: int = 12) -> tuple[float,
     closes = df["close"].values
     vols = df["volume"].values if "volume" in df.columns else np.ones(len(df))
 
-    min_p = float(np.min(lows))
-    max_p = float(np.max(highs))
+    if len(df) == 0:
+        return 0.0, 0.0, 0.0, []
 
-    if max_p <= min_p:
-        return float(closes[-1]), float(closes[-1]), float(closes[-1]), []
+    min_p = float(np.nanmin(lows)) if np.any(~np.isnan(lows)) else 0.0
+    max_p = float(np.nanmax(highs)) if np.any(~np.isnan(highs)) else 0.0
+
+    if max_p <= min_p or np.isnan(min_p) or np.isnan(max_p):
+        last_close = float(closes[-1]) if len(closes) > 0 and not np.isnan(closes[-1]) else 0.0
+        return last_close, last_close, last_close, []
 
     bin_size = (max_p - min_p) / num_bins
+    if bin_size <= 0 or np.isnan(bin_size):
+        last_close = float(closes[-1]) if len(closes) > 0 and not np.isnan(closes[-1]) else 0.0
+        return last_close, last_close, last_close, []
+
     bins_vol = np.zeros(num_bins)
 
     # Distribute volume across candle range
@@ -108,9 +116,17 @@ def compute_volume_profile(df: pd.DataFrame, num_bins: int = 12) -> tuple[float,
         c_high = highs[i]
         c_vol = vols[i]
         
+        if np.isnan(c_low) or np.isnan(c_high) or np.isnan(c_vol) or c_vol <= 0:
+            continue
+
         # Approximate which bins this candle intersects
-        start_bin = int(np.clip((c_low - min_p) / bin_size, 0, num_bins - 1))
-        end_bin = int(np.clip((c_high - min_p) / bin_size, 0, num_bins - 1))
+        low_ratio = (c_low - min_p) / bin_size
+        high_ratio = (c_high - min_p) / bin_size
+        if np.isnan(low_ratio) or np.isnan(high_ratio):
+            continue
+
+        start_bin = int(np.clip(low_ratio, 0, num_bins - 1))
+        end_bin = int(np.clip(high_ratio, 0, num_bins - 1))
         
         count_bins = max(1, end_bin - start_bin + 1)
         vol_per_bin = c_vol / count_bins
