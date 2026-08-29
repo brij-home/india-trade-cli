@@ -432,7 +432,7 @@ async def cmd_analyze(update, context) -> None:
             _suppress_output.active = False
 
     try:
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         result = await asyncio.wait_for(
             loop.run_in_executor(None, _run_analysis),
             timeout=300,  # 5 minute hard timeout
@@ -540,7 +540,7 @@ async def cmd_deepanalyze(update, context) -> None:
             _suppress_output.active = False
 
     try:
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         result = await asyncio.wait_for(
             loop.run_in_executor(None, _run_deep),
             timeout=600,  # 10 minute timeout for deep analysis

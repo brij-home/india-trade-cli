@@ -308,8 +308,11 @@ class TestHoldingsCache:
 
 class TestOhlcvCache:
     def test_history_falls_back_to_yfinance(self, monkeypatch):
-        """When broker raises, yfinance is tried."""
+        """When broker fails, yfinance is called and returns DataFrame."""
         from market import history as hist_mod
+
+        hist_mod._df_memory_cache.clear()
+        monkeypatch.setattr("engine.analysis_cache.cache_get", lambda *a, **kw: None)
 
         def _raise_broker():
             raise RuntimeError("no broker")
@@ -337,6 +340,9 @@ class TestOhlcvCache:
     def test_history_saves_to_disk_cache(self, monkeypatch):
         """Successful yfinance fetch saves data to disk cache."""
         from market import history as hist_mod
+
+        hist_mod._df_memory_cache.clear()
+        monkeypatch.setattr("engine.analysis_cache.cache_get", lambda *a, **kw: None)
 
         def _raise_broker():
             raise RuntimeError("no broker")
@@ -369,6 +375,9 @@ class TestOhlcvCache:
     def test_history_loads_disk_cache_when_all_fail(self, monkeypatch):
         """When broker AND yfinance both fail, disk cache is used."""
         from market import history as hist_mod
+
+        hist_mod._df_memory_cache.clear()
+        monkeypatch.setattr("engine.analysis_cache.cache_get", lambda *a, **kw: None)
 
         def _raise_broker():
             raise RuntimeError("no broker")

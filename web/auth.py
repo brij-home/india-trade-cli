@@ -139,6 +139,9 @@ _sessions: dict[str, dict] = {}
 
 def create_session(user_id: int, email: str) -> str:
     """Generate a random session ID and store it."""
+    if len(_sessions) >= 500:
+        oldest_key = next(iter(_sessions))
+        _sessions.pop(oldest_key, None)
     session_id = secrets.token_urlsafe(32)
     _sessions[session_id] = {
         "user_id": user_id,

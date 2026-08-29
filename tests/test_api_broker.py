@@ -136,7 +136,7 @@ class TestStartupAutoRestore:
 
     def _run(self, coro):
         """Helper: run an async coroutine synchronously."""
-        return asyncio.get_event_loop().run_until_complete(coro)
+        return asyncio.run(coro)
 
     def test_fyers_restored_when_token_exists_and_authenticated(self):
         """When Fyers credentials exist, token file is present, and session is valid, register_broker is called."""

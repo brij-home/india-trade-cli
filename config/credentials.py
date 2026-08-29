@@ -77,22 +77,33 @@ KNOWN_CREDENTIALS: list[tuple[str, str, bool]] = [
     ("STOXKART_PASSWORD", "Stoxkart Trading Password", True),
     ("STOXKART_TOTP_SECRET", "Stoxkart TOTP Secret (Base32)", True),
     # ── AI Provider selection ─────────────────────────────────
-    ("AI_PROVIDER", "AI Provider (anthropic / claude_subscription / openai / gemini / …)", False),
-    # ── AI API Keys ──────────────────────────────────────────
+    ("AI_PROVIDER", "AI Provider (gemini / groq / nvidia / deepseek / openrouter / anthropic / openai / ollama)", False),
+    ("AI_MODEL", "Primary AI Model name", False),
+    # ── AI API Keys & Presets ─────────────────────────────────
+    ("GEMINI_API_KEY", "Google Gemini API Key", True),
+    ("GEMINI_MODEL", "Google Gemini Model Name", False),
     ("ANTHROPIC_API_KEY", "Anthropic API Key", True),
+    ("ANTHROPIC_MODEL", "Anthropic Model Name", False),
     ("OPENAI_API_KEY", "OpenAI API Key", True),
     ("OPENAI_BASE_URL", "OpenAI-compatible Base URL (OpenRouter, PaleDotBlue, etc.)", False),
     ("OPENAI_MODEL", "Model name for OpenAI-compatible provider", False),
-    ("GEMINI_API_KEY", "Google Gemini API Key", True),
     ("OPENAI_SESSION_TOKEN", "OpenAI Session Token (ChatGPT Plus)", True),
     ("GOOGLE_CLOUD_PROJECT", "Google Cloud Project ID", False),
+    ("GROQ_API_KEY", "Groq Cloud API Key", True),
+    ("GROQ_BASE_URL", "Groq Base URL", False),
+    ("GROQ_MODEL", "Groq Model Name", False),
+    ("NVIDIA_API_KEY", "NVIDIA NIM API Key", True),
+    ("NVIDIA_BASE_URL", "NVIDIA NIM Base URL", False),
+    ("NVIDIA_MODEL", "NVIDIA NIM Model Name", False),
+    ("DEEPSEEK_API_KEY", "DeepSeek API Key", True),
+    ("DEEPSEEK_BASE_URL", "DeepSeek Base URL", False),
+    ("DEEPSEEK_MODEL", "DeepSeek Model Name", False),
+    ("OPENROUTER_API_KEY", "OpenRouter API Key", True),
+    ("OPENROUTER_BASE_URL", "OpenRouter Base URL", False),
+    ("OPENROUTER_MODEL", "OpenRouter Model Name", False),
+    ("OLLAMA_BASE_URL", "Ollama Local Base URL", False),
+    ("OLLAMA_MODEL", "Ollama Local Model Name", False),
     # ── Web Search ────────────────────────────────────────────
-    ("EXA_API_KEY", "Exa API Key (neural search, exa.ai)", True),
-    ("TAVILY_API_KEY", "Tavily API Key (research search, tavily.com)", True),
-    # ── Data / News ───────────────────────────────────────────
-    ("NEWSAPI_KEY", "NewsAPI.org Key", True),
-    # ── Web Search (used by News/Macro analyst) ───────────────
-    # Priority: Exa → Tavily → Perplexity Sonar. One key is enough.
     ("EXA_API_KEY", "Exa Search API Key — semantic search, best for finance news (exa.ai)", True),
     ("TAVILY_API_KEY", "Tavily API Key — free 1k/month, no CC required (app.tavily.com)", True),
     (
@@ -100,14 +111,13 @@ KNOWN_CREDENTIALS: list[tuple[str, str, bool]] = [
         "Perplexity API Key — Sonar web search + Finance Agent for India NSE/BSE data",
         True,
     ),
+    # ── Data / News ───────────────────────────────────────────
+    ("NEWSAPI_KEY", "NewsAPI.org Key", True),
     # ── Dual LLM routing (#91) ────────────────────────────────
-    ("AI_DEEP_MODEL", "Deep model for reasoning/synthesis (e.g. claude-opus-4-5)", False),
-    ("AI_FAST_MODEL", "Fast model for extraction/classification (e.g. claude-haiku-3-5)", False),
-    (
-        "AI_FAST_PROVIDER",
-        "Provider for fast model if different from deep (anthropic/gemini/openai)",
-        False,
-    ),
+    ("AI_DEEP_PROVIDER", "Provider for deep reasoning (gemini/nvidia/openrouter/anthropic/openai)", False),
+    ("AI_DEEP_MODEL", "Deep model for reasoning/synthesis (e.g. gemini-3.7-flash, claude-opus-4-5)", False),
+    ("AI_FAST_PROVIDER", "Provider for fast extraction if different from deep (gemini/groq/anthropic)", False),
+    ("AI_FAST_MODEL", "Fast model for extraction/classification (e.g. gemini-3.7-flash, claude-haiku-3-5)", False),
     # ── Notifications ─────────────────────────────────────────
     ("TELEGRAM_BOT_TOKEN", "Telegram Bot Token", True),
 ]

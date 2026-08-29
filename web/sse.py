@@ -92,13 +92,10 @@ class SSEEventBus:
     def publish_sync(self, channel: str, data: dict) -> None:
         """Thread-safe publish from sync code (e.g. polling threads)."""
         try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                asyncio.run_coroutine_threadsafe(self.publish(channel, data), loop)
-            else:
-                loop.run_until_complete(self.publish(channel, data))
+            loop = asyncio.get_running_loop()
+            asyncio.run_coroutine_threadsafe(self.publish(channel, data), loop)
         except RuntimeError:
-            # No event loop available — best-effort: push directly to queues
+            # No running event loop in current thread — best-effort: push directly to queues
             for q in self._channels.get(channel, []):
                 try:
                     q.put_nowait(data)

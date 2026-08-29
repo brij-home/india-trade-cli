@@ -78,7 +78,6 @@ load_dotenv(app_data_path(".env"), override=False)
 _load_keychain()
 
 import asyncio
-from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 
 
@@ -106,14 +105,11 @@ async def _background_cache_warmer():
 
     try:
         await asyncio.sleep(1)
-        loop = asyncio.get_running_loop()
-        with ThreadPoolExecutor(max_workers=1) as pool:
-            await loop.run_in_executor(pool, _warm_sync)
+        await asyncio.to_thread(_warm_sync)
 
         while True:
             await asyncio.sleep(60)
-            with ThreadPoolExecutor(max_workers=1) as pool:
-                await loop.run_in_executor(pool, _warm_sync)
+            await asyncio.to_thread(_warm_sync)
     except asyncio.CancelledError:
         pass
     except Exception:
@@ -130,7 +126,7 @@ async def lifespan(app: FastAPI):
     warmer_task.cancel()
 
 
-app = FastAPI(title="Vibe Trading", docs_url=None, redoc_url=None, lifespan=lifespan)
+app = FastAPI(title="Vibe Trading", docs_url="/docs", redoc_url="/redoc", openapi_url="/openapi.json", lifespan=lifespan)
 
 # ── CORS — allow Electron renderer (Vite dev + packaged file://) ──────────
 from fastapi.middleware.cors import CORSMiddleware

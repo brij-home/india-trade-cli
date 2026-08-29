@@ -137,11 +137,11 @@ def get_earnings_calendar(
             "Accept": "application/json",
             "Referer": "https://www.nseindia.com",
         }
-        session = httpx.Client(follow_redirects=True)
-        session.get("https://www.nseindia.com", headers=headers, timeout=5)
-        r = session.get(NSE_CORP_CALENDAR_URL, headers=headers, timeout=8)
-        r.raise_for_status()
-        data = r.json()
+        with httpx.Client(follow_redirects=True) as session:
+            session.get("https://www.nseindia.com", headers=headers, timeout=5)
+            r = session.get(NSE_CORP_CALENDAR_URL, headers=headers, timeout=8)
+            r.raise_for_status()
+            data = r.json()
 
         today = date.today()
         cutoff = today + timedelta(days=days)
@@ -221,15 +221,15 @@ def get_corporate_actions(symbol: str, n: int = 5) -> list[CorporateAction]:
             "Accept": "application/json",
             "Referer": "https://www.nseindia.com",
         }
-        session = httpx.Client(follow_redirects=True)
-        session.get("https://www.nseindia.com", headers=headers, timeout=5)
-        r = session.get(
-            NSE_CORP_ACTIONS_URL.format(symbol=symbol.upper()),
-            headers=headers,
-            timeout=8,
-        )
-        r.raise_for_status()
-        data = r.json()
+        with httpx.Client(follow_redirects=True) as session:
+            session.get("https://www.nseindia.com", headers=headers, timeout=5)
+            r = session.get(
+                NSE_CORP_ACTIONS_URL.format(symbol=symbol.upper()),
+                headers=headers,
+                timeout=8,
+            )
+            r.raise_for_status()
+            data = r.json()
         actions = []
         for item in data[:n]:
             actions.append(

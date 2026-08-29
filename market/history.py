@@ -152,9 +152,19 @@ def get_ohlcv(
     if hasattr(df.index, "tz") and df.index.tz is not None:
         df.index = df.index.tz_localize(None)
 
-    # Save into Tier 1 In-Memory Cache
+    # Save into Tier 1 In-Memory Cache (bounded to 500 entries)
     if kite_interval == "day" and not df.empty:
         with _df_memory_cache_lock:
+            if len(_df_memory_cache) > 500:
+                # Prune entries older than _DF_TTL_SECONDS
+                expired = [k for k, (t, _) in _df_memory_cache.items() if now_ts - t > _DF_TTL_SECONDS]
+                for k in expired:
+                    _df_memory_cache.pop(k, None)
+                # If still over 500, drop oldest 100 entries
+                if len(_df_memory_cache) > 500:
+                    sorted_by_time = sorted(_df_memory_cache.items(), key=lambda item: item[1][0])
+                    for k, _ in sorted_by_time[:100]:
+                        _df_memory_cache.pop(k, None)
             _df_memory_cache[cache_key] = (now_ts, df.copy())
 
     return df

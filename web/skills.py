@@ -600,13 +600,19 @@ async def skill_analyze(req: AnalyzeRequest):
             pass
 
         from agent.tools import build_registry
-        from agent.core import get_provider
+        from agent.core import get_deep_provider, get_fast_provider
         from agent.multi_agent import MultiAgentAnalyzer
         from agent.prompts import get_channel_hint
 
         registry = build_registry()
-        provider = get_provider(registry=registry)
-        analyzer = MultiAgentAnalyzer(registry, provider, verbose=False)
+        deep_provider = get_deep_provider(registry=registry)
+        fast_provider = get_fast_provider(registry=registry, deep_provider=deep_provider)
+        analyzer = MultiAgentAnalyzer(
+            registry=registry,
+            llm_provider=deep_provider,
+            fast_llm_provider=fast_provider,
+            verbose=False,
+        )
 
         # Inject channel format hint before analysis (#179)
         channel_hint = get_channel_hint(req.channel)
@@ -725,12 +731,19 @@ async def skill_analyze_stream(symbol: str, exchange: str = "NSE", force: bool =
                 pass
 
             from agent.tools import build_registry
-            from agent.core import get_provider
+            from agent.core import get_deep_provider, get_fast_provider
             from agent.multi_agent import MultiAgentAnalyzer as _MAA
 
             registry = build_registry()
-            provider = get_provider(registry=registry)
-            analyzer = _MAA(registry, provider, verbose=False, progress_callback=_cb)
+            deep_provider = get_deep_provider(registry=registry)
+            fast_provider = get_fast_provider(registry=registry, deep_provider=deep_provider)
+            analyzer = _MAA(
+                registry=registry,
+                llm_provider=deep_provider,
+                fast_llm_provider=fast_provider,
+                verbose=False,
+                progress_callback=_cb,
+            )
 
             # Register for mid-stream context injection (#113)
             _active_streams[stream_id] = analyzer
@@ -897,6 +910,10 @@ async def skill_chat(req: ChatRequest):
         from agent.core import TradingAgent
 
         if req.session_id not in _chat_sessions:
+            if len(_chat_sessions) >= 200:
+                # Evict oldest registered session
+                oldest_key = next(iter(_chat_sessions))
+                _chat_sessions.pop(oldest_key, None)
             _chat_sessions[req.session_id] = TradingAgent(stream=False)
 
         agent = _chat_sessions[req.session_id]

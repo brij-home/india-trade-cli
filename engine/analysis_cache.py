@@ -213,15 +213,23 @@ class AnalysisCache:
         # Enforce storage limits
         self.prune()
 
-    def get_macro(self, key: str) -> Any | None:
-        """Get cached macro or flow data if not expired."""
-        now = datetime.now().isoformat()
+    def get_macro(self, key: str, max_age_seconds: int | None = None) -> Any | None:
+        """Get cached macro or flow data if not expired and within max_age_seconds."""
+        now_dt = datetime.now()
+        now = now_dt.isoformat()
         with self._get_conn() as conn:
             row = conn.execute(
-                "SELECT data_json FROM macro_cache WHERE cache_key = ? AND expires_at > ?",
+                "SELECT data_json, created_at FROM macro_cache WHERE cache_key = ? AND expires_at > ?",
                 (key, now),
             ).fetchone()
             if row:
+                if max_age_seconds is not None and max_age_seconds > 0:
+                    try:
+                        created_dt = datetime.fromisoformat(row["created_at"])
+                        if (now_dt - created_dt).total_seconds() > max_age_seconds:
+                            return None
+                    except Exception:
+                        pass
                 try:
                     return json.loads(row["data_json"])
                 except Exception:
@@ -318,8 +326,8 @@ analysis_cache = AnalysisCache()
 
 
 def cache_get(key: str, namespace: str = "generic", max_age_seconds: int = 600) -> Any | None:
-    """Retrieve cached JSON payload by key and namespace."""
-    return analysis_cache.get_macro(f"{namespace}:{key}")
+    """Retrieve cached JSON payload by key and namespace with max_age_seconds validation."""
+    return analysis_cache.get_macro(f"{namespace}:{key}", max_age_seconds=max_age_seconds)
 
 
 def cache_set(key: str, data: Any, namespace: str = "generic", ttl_minutes: int = 15) -> None:

@@ -264,8 +264,13 @@ class DeepAnalyzer:
 
         t1 = time.time()
         # Create a temporary MultiAgentAnalyzer just for debate + synthesis
+        fast_provider = getattr(self, "fast_llm", None)
         multi = MultiAgentAnalyzer(
-            self.registry, self.llm, verbose=self.verbose, risk_debate=self.risk_debate
+            self.registry,
+            self.llm,
+            verbose=self.verbose,
+            risk_debate=self.risk_debate,
+            fast_llm_provider=fast_provider,
         )
         # Inject inline context hint without blocking for input
         if self.context:

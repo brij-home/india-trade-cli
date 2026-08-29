@@ -64,22 +64,44 @@ class TestDefaultModel:
         assert _default_model(PROVIDER_GEMINI_SUB) == GEMINI_DEFAULT_MODEL
 
 
+def _clear_all_ai_keys(monkeypatch):
+    keys = [
+        "ANTHROPIC_API_KEY",
+        "OPENAI_API_KEY",
+        "GEMINI_API_KEY",
+        "GEMINI_API_KEYS",
+        "GOOGLE_API_KEY",
+        "GROQ_API_KEY",
+        "NVIDIA_API_KEY",
+        "DEEPSEEK_API_KEY",
+        "OPENROUTER_API_KEY",
+        "OPENAI_SESSION_TOKEN",
+        "OLLAMA_BASE_URL",
+        "OLLAMA_MODEL",
+        "AI_PROVIDER",
+        "AI_MODEL",
+    ]
+    for k in keys:
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setattr("config.credentials.get_credential", lambda *a, **kw: None)
+
+
 # ── Auto-detect provider ────────────────────────────────────
 
 
 class TestAutoDetectProvider:
     def test_openai_key_detected(self, monkeypatch):
-        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        _clear_all_ai_keys(monkeypatch)
         monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
         assert _auto_detect_provider() == PROVIDER_OPENAI
 
     def test_anthropic_key_detected(self, monkeypatch):
+        _clear_all_ai_keys(monkeypatch)
         monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
         assert _auto_detect_provider() == PROVIDER_ANTHROPIC
 
     def test_gemini_key_detected(self, monkeypatch):
-        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        _clear_all_ai_keys(monkeypatch)
         monkeypatch.setenv("GEMINI_API_KEY", "AIza-test")
         assert _auto_detect_provider() == PROVIDER_GEMINI
 
@@ -292,17 +314,13 @@ class TestOllamaProvider:
 
     def test_auto_detect_from_ollama_base_url(self, monkeypatch):
         """Setting OLLAMA_BASE_URL should auto-detect Ollama as the provider."""
-        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-        monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+        _clear_all_ai_keys(monkeypatch)
         monkeypatch.setenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
         assert _auto_detect_provider() == PROVIDER_OLLAMA
 
     def test_auto_detect_from_ollama_model_env(self, monkeypatch):
         """Setting OLLAMA_MODEL should auto-detect Ollama as the provider."""
-        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-        monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+        _clear_all_ai_keys(monkeypatch)
         monkeypatch.setenv("OLLAMA_MODEL", "qwen2.5-coder")
         assert _auto_detect_provider() == PROVIDER_OLLAMA
 

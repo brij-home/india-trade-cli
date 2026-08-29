@@ -212,6 +212,7 @@ def _parse_deal_item(item: dict, deal_class: str) -> Deal:
 
 def get_block_deals() -> list[Deal]:
     """Fetch today's block deals from NSE."""
+    session = None
     try:
         session = _nse_session()
 
@@ -236,6 +237,12 @@ def get_block_deals() -> list[Deal]:
         return [_parse_deal_item(it, "BLOCK") for it in items]
     except Exception:
         return []
+    finally:
+        if session:
+            try:
+                session.close()
+            except Exception:
+                pass
 
 
 # ── Bulk deals ───────────────────────────────────────────────
@@ -342,43 +349,51 @@ def get_bulk_deals(days: int = 5, symbol: Optional[str] = None) -> list[Deal]:
       2. Historical API (date range, original endpoint)
       3. CSV archive (last resort, no auth needed)
     """
+    session = None
     try:
-        session = _nse_session()
-    except Exception:
-        # If even the session warmup fails, jump to CSV
-        deals = _bulk_via_csv()
+        try:
+            session = _nse_session()
+        except Exception:
+            # If even the session warmup fails, jump to CSV
+            deals = _bulk_via_csv()
+            if symbol:
+                deals = [d for d in deals if d.symbol.upper() == symbol.upper()]
+            return deals
+
+        # 1. Try snapshot (today's deals)
+        deals = _bulk_via_snapshot(session)
+
+        # If filtering by symbol and snapshot had no match, also try historical
+        # (snapshot only has today; historical covers the last N days)
         if symbol:
-            deals = [d for d in deals if d.symbol.upper() == symbol.upper()]
-        return deals
+            filtered = [d for d in deals if d.symbol.upper() == symbol.upper()]
+            if not filtered:
+                # 2. Try historical endpoint (wider date range)
+                hist = _bulk_via_historical(session, days, symbol)
+                if hist:
+                    return hist
+                # 3. CSV archive fallback
+                csv_deals = _bulk_via_csv()
+                return [d for d in csv_deals if d.symbol.upper() == symbol.upper()]
+            return filtered
 
-    # 1. Try snapshot (today's deals)
-    deals = _bulk_via_snapshot(session)
+        # No symbol filter: snapshot has data, return it
+        if deals:
+            return deals
 
-    # If filtering by symbol and snapshot had no match, also try historical
-    # (snapshot only has today; historical covers the last N days)
-    if symbol:
-        filtered = [d for d in deals if d.symbol.upper() == symbol.upper()]
-        if not filtered:
-            # 2. Try historical endpoint (wider date range)
-            hist = _bulk_via_historical(session, days, symbol)
-            if hist:
-                return hist
-            # 3. CSV archive fallback
-            csv_deals = _bulk_via_csv()
-            return [d for d in csv_deals if d.symbol.upper() == symbol.upper()]
-        return filtered
+        # 2. Try historical endpoint (wider date range)
+        deals = _bulk_via_historical(session, days, symbol)
+        if deals:
+            return deals
 
-    # No symbol filter: snapshot has data, return it
-    if deals:
-        return deals
-
-    # 2. Try historical endpoint (wider date range)
-    deals = _bulk_via_historical(session, days, symbol)
-    if deals:
-        return deals
-
-    # 3. CSV archive fallback
-    return _bulk_via_csv()
+        # 3. CSV archive fallback
+        return _bulk_via_csv()
+    finally:
+        if session:
+            try:
+                session.close()
+            except Exception:
+                pass
 
 
 # ── Display ──────────────────────────────────────────────────

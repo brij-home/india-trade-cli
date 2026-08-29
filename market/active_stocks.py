@@ -45,13 +45,13 @@ def get_most_active(by: str = "volume", limit: int = 20) -> list[ActiveStock]:
             "Accept": "application/json",
             "Referer": "https://www.nseindia.com",
         }
-        session = httpx.Client(follow_redirects=True)
-        session.get("https://www.nseindia.com", headers=headers, timeout=5)
+        with httpx.Client(follow_redirects=True) as session:
+            session.get("https://www.nseindia.com", headers=headers, timeout=5)
 
-        url = f"https://www.nseindia.com/api/live-analysis-most-active-securities?index={by}"
-        r = session.get(url, headers=headers, timeout=8)
-        r.raise_for_status()
-        data = r.json()
+            url = f"https://www.nseindia.com/api/live-analysis-most-active-securities?index={by}"
+            r = session.get(url, headers=headers, timeout=8)
+            r.raise_for_status()
+            data = r.json()
 
         results = []
         for item in data.get("data", [])[:limit]:

@@ -214,15 +214,15 @@ def get_nse_announcements(symbol: str, n: int = 5) -> list[NewsItem]:
             "Referer": "https://www.nseindia.com",
         }
         # NSE requires a session cookie from their homepage first
-        session = httpx.Client(follow_redirects=True)
-        session.get("https://www.nseindia.com", headers=headers, timeout=5)
-        r = session.get(
-            NSE_ANNOUNCEMENTS_URL.format(symbol=symbol.upper()),
-            headers=headers,
-            timeout=8,
-        )
-        r.raise_for_status()
-        data = r.json()
+        with httpx.Client(follow_redirects=True) as session:
+            session.get("https://www.nseindia.com", headers=headers, timeout=5)
+            r = session.get(
+                NSE_ANNOUNCEMENTS_URL.format(symbol=symbol.upper()),
+                headers=headers,
+                timeout=8,
+            )
+            r.raise_for_status()
+            data = r.json()
         items = []
         for ann in data[:n]:
             items.append(

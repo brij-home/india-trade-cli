@@ -34,7 +34,7 @@ Notes on subscriptions vs API keys:
 
   GOOGLE (Gemini):
     • Google AI Studio key → use `gemini` provider  (GEMINI_API_KEY)
-      Free at aistudio.google.com — supports Gemini 2.5 Pro, Flash, etc.
+      Free at aistudio.google.com — supports Gemini 3.7 Flash, 3.5 Flash, etc.
     • Gemini Advanced (Google One) or Google Workspace → use `gemini_subscription`
       Uses Vertex AI with Application Default Credentials (gcloud auth login)
       Requires a GCP project: gcloud config set project <PROJECT_ID>
@@ -1568,22 +1568,29 @@ class GeminiProvider(LLMProvider):
         try:
             from google import genai
             from google.genai import types as genai_types
+            import re
 
             self._genai = genai
             self._genai_types = genai_types
-            api_key = (
+            raw_keys = (
                 os.environ.get("GEMINI_API_KEY")
+                or os.environ.get("GEMINI_API_KEYS")
                 or os.environ.get("GOOGLE_API_KEY")
                 or get_credential("GEMINI_API_KEY", "Google Gemini API Key", secret=True, required=False)
                 or ""
             )
-            if not api_key:
+            # Parse comma-, semicolon-, or newline-separated key pool
+            self._api_keys = [k.strip() for k in re.split(r"[,;\n\r]+", raw_keys) if k.strip()]
+            if not self._api_keys:
                 raise RuntimeError(
                     "GEMINI_API_KEY not set.\n"
                     "Get a free key at: https://aistudio.google.com/apikey\n"
                     "Then run: credentials set GEMINI_API_KEY"
                 )
-            self._client = genai.Client(api_key=api_key)
+
+            self._clients = [genai.Client(api_key=k) for k in self._api_keys]
+            self._client_idx = 0
+            self._client_cooldowns: dict[int, float] = {}
             self._tools_schema = self._build_gemini_tools()
         except ImportError:
             raise RuntimeError(
@@ -1594,7 +1601,32 @@ class GeminiProvider(LLMProvider):
 
     @property
     def provider_name(self) -> str:
-        return f"Google Gemini / {self.model or GEMINI_DEFAULT_MODEL}"
+        key_count = len(self._api_keys) if hasattr(self, "_api_keys") else 1
+        pool_str = f" ({key_count} keys pooled)" if key_count > 1 else ""
+        return f"Google Gemini / {self.model or GEMINI_DEFAULT_MODEL}{pool_str}"
+
+    def _get_active_client(self) -> tuple[int, Any]:
+        """Return (key_index, Client) using round-robin rotation and skipping rate-limited keys."""
+        import time
+
+        now = time.time()
+        n = len(self._clients)
+        for i in range(n):
+            idx = (self._client_idx + i) % n
+            cooldown_until = self._client_cooldowns.get(idx, 0.0)
+            if now >= cooldown_until:
+                self._client_idx = (idx + 1) % n
+                return idx, self._clients[idx]
+
+        # If all keys are in cooldown, select the one with earliest expiration
+        earliest_idx = min(self._client_cooldowns, key=self._client_cooldowns.get) if self._client_cooldowns else 0
+        return earliest_idx, self._clients[earliest_idx]
+
+    def _mark_key_cooldown(self, key_idx: int, cooldown_seconds: float = 45.0) -> None:
+        """Mark a specific key index as temporarily in cooldown."""
+        import time
+
+        self._client_cooldowns[key_idx] = time.time() + cooldown_seconds
 
     def _build_gemini_tools(self, include: list[str] | set[str] | None = None) -> list:
         """Convert ToolRegistry to Gemini FunctionDeclaration format."""
@@ -1621,7 +1653,7 @@ class GeminiProvider(LLMProvider):
         enable_tools: bool = True,
         tool_names: list[str] | set[str] | None = None,
     ) -> str:
-        """Agentic loop using Gemini's function calling."""
+        """Agentic loop using Gemini's function calling with dynamic key rotation and fallback."""
         types = self._genai_types
 
         # Build chat config with tools (optionally filtered) and system instruction
@@ -1637,31 +1669,31 @@ class GeminiProvider(LLMProvider):
         last_msg = messages[-1]["content"] if messages else ""
 
         active_model = self.model or GEMINI_DEFAULT_MODEL
+        client_idx, active_client = self._get_active_client()
         chat_session = None
 
-        candidate_chain = [active_model] + [
-            m for m in ["gemini-3.7-flash", "gemini-3.5-flash-lite", "gemini-3.5-flash", "gemini-flash-latest"]
+        candidate_models = [active_model] + [
+            m for m in ["gemini-3.7-flash", "gemini-3.5-flash", "gemini-3.5-flash-lite", "gemini-3.6-flash", "gemini-flash-latest"]
             if m != active_model
         ]
 
-        for cand in candidate_chain:
+        def _create_session(client_obj, model_name):
+            return client_obj.chats.create(
+                model=model_name,
+                config=config,
+                history=gemini_history or None,
+            )
+
+        for cand in candidate_models:
             try:
-                chat_session = self._client.chats.create(
-                    model=cand,
-                    config=config,
-                    history=gemini_history or None,
-                )
+                chat_session = _create_session(active_client, cand)
                 active_model = cand
                 break
             except Exception:
                 continue
 
         if chat_session is None:
-            chat_session = self._client.chats.create(
-                model=active_model,
-                config=config,
-                history=gemini_history or None,
-            )
+            chat_session = _create_session(active_client, active_model)
 
         final_text = ""
 
@@ -1673,33 +1705,68 @@ class GeminiProvider(LLMProvider):
                 response = _retry_api_call(chat_session.send_message, current_input)
             except Exception as e:
                 err_str = str(e).lower()
+                is_auth_error = any(
+                    term in err_str
+                    for term in ("api key not valid", "api_key_invalid", "unauthorized", "invalid api key", "401")
+                )
+                if is_auth_error:
+                    return f"[Gemini error: {e}]"
+
                 is_fallback_candidate = any(
                     term in err_str
                     for term in (
-                        "resource_exhausted", "quota exceeded", "not found", "404",
-                        "invalid argument", "not supported", "is not valid", "rate limit"
+                        "resource_exhausted",
+                        "quota exceeded",
+                        "not found",
+                        "404",
+                        "not supported",
+                        "is not valid",
+                        "rate limit",
+                        "429",
                     )
                 )
                 if is_fallback_candidate:
-                    fallback_models = [
-                        m for m in ["gemini-3.7-flash", "gemini-3.5-flash-lite", "gemini-3.5-flash", "gemini-flash-latest"]
-                        if m != active_model
-                    ]
-                    for fb_model in fallback_models:
-                        try:
-                            fb_session = self._client.chats.create(
-                                model=fb_model,
-                                config=config,
-                                history=gemini_history or None,
-                            )
-                            response = _retry_api_call(fb_session.send_message, current_input)
-                            chat_session = fb_session  # switch active session
-                            active_model = fb_model
-                            break
-                        except Exception:
-                            continue
+                    self._mark_key_cooldown(client_idx, cooldown_seconds=45.0)
+
+                    # 1. Try other keys in the pool first for the current model
+                    key_recovered = False
+                    if len(self._clients) > 1:
+                        for next_idx in range(len(self._clients)):
+                            if next_idx == client_idx:
+                                continue
+                            try:
+                                fb_session = _create_session(self._clients[next_idx], active_model)
+                                response = fb_session.send_message(current_input)
+                                chat_session = fb_session
+                                client_idx = next_idx
+                                key_recovered = True
+                                break
+                            except Exception:
+                                self._mark_key_cooldown(next_idx, cooldown_seconds=45.0)
+                                continue
+
+                    if key_recovered:
+                        pass
                     else:
-                        return f"[Gemini error: {e}]"
+                        # 2. Try fallback models across all pooled keys
+                        fallback_models = [m for m in candidate_models if m != active_model]
+                        model_recovered = False
+                        for fb_model in fallback_models:
+                            for c_idx, client_cand in enumerate(self._clients):
+                                try:
+                                    fb_session = _create_session(client_cand, fb_model)
+                                    response = fb_session.send_message(current_input)
+                                    chat_session = fb_session
+                                    active_model = fb_model
+                                    client_idx = c_idx
+                                    model_recovered = True
+                                    break
+                                except Exception:
+                                    continue
+                            if model_recovered:
+                                break
+                        if not model_recovered:
+                            return f"[Gemini error: {e}]"
                 else:
                     return f"[Gemini error: {e}]"
 
@@ -1814,7 +1881,7 @@ class GeminiVertexProvider(LLMProvider):
 
             tools = self._build_vertex_tools()
             self._model_obj = GenerativeModel(
-                model_name=self.model or "gemini-2.5-pro",
+                model_name=self.model or "gemini-3.7-flash",
                 system_instruction=self.system_prompt,
                 tools=[tools] if tools else [],
             )
@@ -1826,7 +1893,7 @@ class GeminiVertexProvider(LLMProvider):
 
     @property
     def provider_name(self) -> str:
-        return f"Google Vertex AI / {self.model or 'gemini-2.5-pro'} ({self._project})"
+        return f"Google Vertex AI / {self.model or 'gemini-3.7-flash'} ({self._project})"
 
     def _build_vertex_tools(self, include: list[str] | set[str] | None = None):
         declarations = []

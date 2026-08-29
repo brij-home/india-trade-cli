@@ -1753,11 +1753,13 @@ class MultiAgentAnalyzer:
         self,
         prompt: str,
         fallback_text: str = "",
-        timeout: float = 35.0,
+        timeout: float = 18.0,
+        llm: Any = None,
     ) -> str:
         """Execute an LLM chat call with exception protection and fallback."""
+        target_llm = llm or self.llm
         try:
-            res = self.llm.chat(
+            res = target_llm.chat(
                 messages=[{"role": "user", "content": prompt}],
                 stream=False,
                 enable_tools=False,
@@ -1898,6 +1900,20 @@ class MultiAgentAnalyzer:
         bull_fallback = f"Bull Thesis: {symbol} maintains positive structure with quantitative score {scorecard.total_score:+.1f}."
         bear_fallback = f"Bear Counter: Downside risks include valuation multiples and macro headwinds."
 
+        # Emit immediate progress signal for UI responsiveness
+        if self.progress_callback:
+            self.progress_callback(
+                {
+                    "type": "debate_step",
+                    "step": "starting",
+                    "label": "Debate Started",
+                    "text": f"⚔️ Bull & Bear researchers constructing parallel investment cases for {symbol}...",
+                }
+            )
+
+        fast_llm = getattr(self, "fast_llm", None) or self.llm
+        deep_llm = getattr(self, "llm", None)
+
         # ── Round 1: Opening arguments (Concurrent) ───────────────────────
         if self.verbose:
             console.print("\n[bold]Round 1[/bold]")
@@ -1915,7 +1931,7 @@ class MultiAgentAnalyzer:
         )
 
         def _run_bull_r1():
-            res = self._safe_chat(bull_prompt, bull_fallback)
+            res = self._safe_chat(bull_prompt, bull_fallback, timeout=18.0, llm=fast_llm)
             if self.progress_callback:
                 self.progress_callback(
                     {
@@ -1928,7 +1944,7 @@ class MultiAgentAnalyzer:
             return res
 
         def _run_bear_r1():
-            res = self._safe_chat(bear_prompt, bear_fallback)
+            res = self._safe_chat(bear_prompt, bear_fallback, timeout=18.0, llm=fast_llm)
             if self.progress_callback:
                 self.progress_callback(
                     {
@@ -1943,8 +1959,14 @@ class MultiAgentAnalyzer:
         with ThreadPoolExecutor(max_workers=2) as executor:
             f_bull = executor.submit(_run_bull_r1)
             f_bear = executor.submit(_run_bear_r1)
-            bull_argument = f_bull.result(timeout=35.0)
-            bear_argument = f_bear.result(timeout=35.0)
+            try:
+                bull_argument = f_bull.result(timeout=18.0)
+            except Exception:
+                bull_argument = bull_fallback
+            try:
+                bear_argument = f_bear.result(timeout=18.0)
+            except Exception:
+                bear_argument = bear_fallback
 
         # ── Round 2: Rebuttals (Concurrent) ───────────────────────────────
         if self.verbose:
@@ -1968,7 +1990,7 @@ class MultiAgentAnalyzer:
         bear_reb_fallback = f"Bear Rebuttal: Maintain defensive invalidation stop to mitigate execution risk."
 
         def _run_bull_r2():
-            res = self._safe_chat(bull_rebuttal_prompt, bull_reb_fallback)
+            res = self._safe_chat(bull_rebuttal_prompt, bull_reb_fallback, timeout=18.0, llm=fast_llm)
             if self.progress_callback:
                 self.progress_callback(
                     {
@@ -1981,7 +2003,7 @@ class MultiAgentAnalyzer:
             return res
 
         def _run_bear_r2():
-            res = self._safe_chat(bear_rebuttal_prompt, bear_reb_fallback)
+            res = self._safe_chat(bear_rebuttal_prompt, bear_reb_fallback, timeout=18.0, llm=fast_llm)
             if self.progress_callback:
                 self.progress_callback(
                     {
@@ -1996,8 +2018,14 @@ class MultiAgentAnalyzer:
         with ThreadPoolExecutor(max_workers=2) as executor:
             f_bull_reb = executor.submit(_run_bull_r2)
             f_bear_reb = executor.submit(_run_bear_r2)
-            bull_rebuttal = f_bull_reb.result(timeout=35.0)
-            bear_rebuttal = f_bear_reb.result(timeout=35.0)
+            try:
+                bull_rebuttal = f_bull_reb.result(timeout=18.0)
+            except Exception:
+                bull_rebuttal = bull_reb_fallback
+            try:
+                bear_rebuttal = f_bear_reb.result(timeout=18.0)
+            except Exception:
+                bear_rebuttal = bear_reb_fallback
 
         # ── Facilitator: Summarize & pick winner ─────────────
         facilitator_prompt = FACILITATOR_PROMPT.format(
@@ -2014,7 +2042,7 @@ class MultiAgentAnalyzer:
         fac_winner_hint = "BULL" if scorecard.total_score >= 10 else "BEAR" if scorecard.total_score <= -10 else "NEUTRAL"
         fac_fallback = f"FACILITATOR SUMMARY:\nWINNER: {fac_winner_hint}\nDebate concluded in favor of {fac_winner_hint} based on quantitative scorecard (+{scorecard.total_score:.1f})."
 
-        facilitator_summary = self._safe_chat(facilitator_prompt, fac_fallback)
+        facilitator_summary = self._safe_chat(facilitator_prompt, fac_fallback, timeout=20.0, llm=deep_llm)
         if self.progress_callback:
             self.progress_callback(
                 {
@@ -2069,7 +2097,7 @@ class MultiAgentAnalyzer:
         for a different position-sizing and risk-management approach.
         A consensus note is derived from all three views.
 
-        Total: 3 LLM calls (Aggressive & Conservative run concurrently).
+        Total: 3 LLM calls (Aggressive & Conservative run concurrently via fast LLM).
         Only called when scorecard.verdict != HOLD.
         """
         # Build shared context for all three debaters
@@ -2105,11 +2133,20 @@ class MultiAgentAnalyzer:
         agg_fallback = "Aggressive View: Maximize position size with standard 2% capital risk."
         cons_fallback = "Conservative View: Preserve capital with 1% risk budget and strict stop loss."
 
+        fast_llm = getattr(self, "fast_llm", None) or getattr(self, "llm", None)
+        deep_llm = getattr(self, "llm", None)
+
         with ThreadPoolExecutor(max_workers=2) as executor:
-            f_agg = executor.submit(self._safe_chat, agg_prompt, agg_fallback)
-            f_cons = executor.submit(self._safe_chat, cons_prompt, cons_fallback)
-            aggressive_view = f_agg.result(timeout=35.0)
-            conservative_view = f_cons.result(timeout=35.0)
+            f_agg = executor.submit(self._safe_chat, agg_prompt, agg_fallback, 18.0, fast_llm)
+            f_cons = executor.submit(self._safe_chat, cons_prompt, cons_fallback, 18.0, fast_llm)
+            try:
+                aggressive_view = f_agg.result(timeout=18.0)
+            except Exception:
+                aggressive_view = agg_fallback
+            try:
+                conservative_view = f_cons.result(timeout=18.0)
+            except Exception:
+                conservative_view = cons_fallback
 
         # Neutral debater
         if self.verbose:
@@ -2121,7 +2158,7 @@ class MultiAgentAnalyzer:
             conservative_view=conservative_view,
         )
         neut_fallback = "Neutral View: Calibrated sizing at 1.5% capital risk budget."
-        neutral_view = self._safe_chat(neutral_prompt, neut_fallback)
+        neutral_view = self._safe_chat(neutral_prompt, neut_fallback, 20.0, deep_llm)
 
         # Extract consensus sizing from neutral view (first line with % or ₹)
         consensus = neutral_view.splitlines()[0] if neutral_view else ""
