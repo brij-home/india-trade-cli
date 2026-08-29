@@ -106,6 +106,16 @@
       - Two-tier execution status (`🟢 READY` vs `🟡 STALK` vs `🔴 STAND_DOWN`).
       - Concrete trade levels: Entry Price, Invalidation Stop-Loss, Target 1 ($2R$), Target 2 ($3.5R$).
       - Explicit "Why Pick / Why Avoid" rationale, holding timelines (e.g. 5–15 Trading Days), and trailing stop rules (`2R Breakeven`, `Chandelier ATR 3x`).
+12. **Resource Leak Prevention & Connection Lifecycle**:
+    - Always wrap HTTP scraper sessions (`httpx.Client`) in `with` context managers (or enforce `finally: session.close()`) to guarantee immediate TCP socket cleanup and eliminate socket/connection leaks across market scanners.
+    - All unbounded in-memory dictionaries (`_df_memory_cache`, `_chat_sessions`, `_sessions`) must enforce bounded maximum capacities with LRU eviction and TTL invalidation to prevent memory growth across extended server uptimes.
+13. **Dual-LLM Routing & Phase 2 Debate Latency Contract**:
+    - Always wire both `deep_provider` and `fast_llm_provider` into `MultiAgentAnalyzer` across CLI, REPL, and FastAPI sidecar endpoints.
+    - Route parallel research calls (Bull R1, Bear R1, Bull R2, Bear R2, Aggressive/Conservative risk debate) to `self.fast_llm` for ultra-fast parallel execution.
+    - Reserve `self.llm` (Deep Reasoning) strictly for Facilitator consensus and final Fund Manager synthesis.
+    - Wrap all debate futures in defensive 18.0s timeout wrappers with deterministic quantitative fallbacks.
+    - Fast-fail provider authentication/key errors (`api_key_invalid`, `401`, `unauthorized`) immediately to prevent retry storms across model fallback loops.
+    - Dispatch an immediate SSE start pulse (`type="debate_step", step="starting"`) as soon as Phase 2 starts to maintain responsive UI feedback.
 
 ---
 

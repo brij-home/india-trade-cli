@@ -34,16 +34,22 @@ The AI layer in `india-trade-cli` uses a multi-tier pipeline designed to maximiz
 
 ---
 
-## Dual-LLM Routing
+## Dual-LLM Routing & Debate Allocation
 
 Configured in `.env` and loaded via [`agent/core.py`](file:///c:/Users/brije/.gemini/antigravity/scratch/india-trade-cli/agent/core.py):
 
 - **Fast Extraction Layer** (`AI_FAST_PROVIDER`, `AI_FAST_MODEL`):
-   - Used for quick data extraction, news sentiment parsing, and preliminary scanning.
-   - Recommended: `gemini` (`gemini-2.0-flash`), `groq` (`llama-3.3-70b-versatile`).
+  - Used for: Parallel Bull & Bear researcher opening and rebuttal arguments, news sentiment classification, preliminary scanning, and Aggressive/Conservative risk debates.
+  - Recommended: `groq` (`qwen/qwen3.8-27b`, `llama-3.3-70b-versatile`), `gemini` (`gemini-3.7-flash`, `gemini-3.5-flash-lite`).
+  - Timeout: Strict 18.0s timeout per thread with deterministic quantitative fallback.
 - **Deep Reasoning Layer** (`AI_DEEP_PROVIDER`, `AI_DEEP_MODEL`):
-   - Used for adversarial debates, complex synthesis, and risk gate decisions.
-   - Recommended: `nvidia` (`meta/llama-3.3-70b-instruct`), `anthropic` (`claude-3-7-sonnet`), `openai` (`gpt-4o` / `o3-mini`).
+  - Used for: Facilitator debate synthesis, Neutral calibrated risk view, and Fund Manager final verdict synthesis.
+  - Recommended: `nvidia` (`meta/llama-3.3-70b-instruct`), `anthropic` (`claude-3-7-sonnet`), `openai` (`gpt-4o` / `o3-mini`).
+
+### Phase 2 Latency & Failure Safeguards
+1. **Thread Execution Safety**: All debate futures (`f_bull`, `f_bear`, `f_bull_reb`, `f_bear_reb`) must be wrapped in `try/except` fallback blocks with quantitative thesis defaults so timeouts never crash the pipeline.
+2. **Fast-Fail Authentication**: Provider key errors (`api_key_invalid`, `401`, `unauthorized`) must fail immediately without cycling through fallback model candidate loops.
+3. **Instant SSE Progress**: Dispatch `type="debate_step", step="starting"` as soon as Phase 2 starts to eliminate perceived UI freezes.
 
 ---
 

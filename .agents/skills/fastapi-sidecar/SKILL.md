@@ -57,4 +57,6 @@ The FastAPI sidecar (`web.api:app`) acts as the local backend service on port `8
 6. **Modal Dismissal on Action**: All interactive modals (Top 10 Radar, Sector Drilldown, Command Palette) must close automatically (`close-all-modals` event) when an action button is clicked, seamlessly switching to the active stream view.
 7. **Bi-directional Navigation**: Provide a sticky `← 🏠 Dashboard` button and a `← Return to Active View` banner to toggle effortlessly between the welcome dashboard and loaded analysis cards.
 8. **Non-Blocking UI**: Modal dialogs must support backdrop dismiss (`onClick={onClose}` + `e.stopPropagation()`) and avoid blocking browser `alert()` popups.
+9. **Connection Lifecycle & Socket Hygiene**: Wrap all scraper `httpx.Client()` instances in context managers (`with httpx.Client(...) as session:`) to prevent unclosed TCP connection leaks.
+10. **Bounded In-Memory Caches**: Always cap in-memory dictionaries (`_chat_sessions`, `_sessions`, `_df_memory_cache`) with maximum capacity LRU evictions and TTL checks to prevent memory leaks during long-running sidecar sessions.
 
